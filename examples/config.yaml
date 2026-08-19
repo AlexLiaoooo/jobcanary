@@ -1,0 +1,48 @@
+# jobcanary example configuration.
+# Run with: jobcanary run --config examples/config.yaml
+
+output:
+  dir: ./digests
+  format: markdown
+
+dedupe:
+  retentionDays: 30
+
+scoring:
+  provider: none          # none | anthropic | claude-cli
+  keywords:               # used only by the 'none' provider
+    - graduate
+    - cfd
+    - powertrain
+
+rules:
+  exclude:
+    - id: senior
+      field: title
+      match: ["senior", "principal", "head of", "director"]
+    - id: non-engineering
+      field: title
+      match: ["sales", "marketing", "recruit"]
+  annotate:
+    - id: right-to-work
+      field: description
+      match: ["no visa sponsorship", "unable to sponsor"]
+      note: "Mentions a sponsorship restriction — verify eligibility"
+
+sites:
+  - id: acme
+    company: Acme Dynamics
+    type: greenhouse
+    board: acmedynamics
+
+  - id: nordholt
+    company: Nordholt Racing
+    type: lever
+    board: nordholt
+
+  - id: vantor
+    company: Vantor Propulsion
+    type: workday
+    host: https://vantor.wd3.myworkdayjobs.com
+    tenant: vantor
+    board: External
