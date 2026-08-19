@@ -8,7 +8,7 @@
   "bin": { "jobcanary": "bin/jobcanary.mjs" },
   "exports": { ".": "./src/index.mjs" },
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test"
   },
   "dependencies": {
     "yaml": "^2.5.0"
