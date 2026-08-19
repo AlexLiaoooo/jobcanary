@@ -97,17 +97,22 @@ async function main() {
   return 0;
 }
 
+// Set process.exitCode and let the event loop drain naturally, rather than
+// calling process.exit(). process.exit() tears the process down while undici
+// may still have sockets and abort timers in flight, which fast-fails with a
+// native libuv assertion on Windows; process.exitCode lets everything close
+// on its own and produces the documented exit code on every platform.
 try {
-  process.exit(await main());
+  process.exitCode = await main();
 } catch (err) {
   if (err instanceof ConfigError || /unknown adapter type|unknown scoring provider/.test(err.message)) {
     console.error(`config error: ${err.message}`);
-    process.exit(2);
-  }
-  if (/^all \d+ site\(s\) failed/.test(err.message)) {
+    process.exitCode = 2;
+  } else if (/^all \d+ site\(s\) failed/.test(err.message)) {
     console.error(err.message);
-    process.exit(3);
+    process.exitCode = 3;
+  } else {
+    console.error(err.stack ?? err.message);
+    process.exitCode = 1;
   }
-  console.error(err.stack ?? err.message);
-  process.exit(1);
 }
