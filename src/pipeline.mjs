@@ -64,6 +64,18 @@ export async function run(config, { seen = {}, today, browser = false, http, log
   }
   const scanned = withinRun.size;
 
+  // Spec: zero postings across *all* sites is an error, not an empty digest.
+  // Adapters return [] rather than throw when a response changes shape, so a
+  // renamed field yields a 200, valid JSON, and nothing at all — and a user on
+  // a daily schedule would read "No new postings today" for months without
+  // ever learning the tool had broken.
+  if (active.length > 0 && scanned === 0) {
+    throw new Error(
+      `all ${active.length} site(s) returned zero postings — a board that is genuinely empty is rare; ` +
+      'this usually means an adapter has gone stale or a site changed its response shape'
+    );
+  }
+
   let alreadySeen = 0;
   let excluded = 0;
   const survivors = [];

@@ -108,7 +108,7 @@ try {
   if (err instanceof ConfigError || /unknown adapter type|unknown scoring provider/.test(err.message)) {
     console.error(`config error: ${err.message}`);
     process.exitCode = 2;
-  } else if (/^all \d+ site\(s\) failed/.test(err.message)) {
+  } else if (/^all \d+ site\(s\) (failed|returned zero postings)/.test(err.message)) {
     console.error(err.message);
     process.exitCode = 3;
   } else {

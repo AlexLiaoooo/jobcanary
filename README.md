@@ -130,7 +130,7 @@ Only these three adapters exist today. A larger adapter fleet (static career pag
 | 0    | Success |
 | 1    | Unexpected error |
 | 2    | Config invalid (missing file, bad YAML, unknown adapter type, failed validation) |
-| 3    | Every configured site failed to fetch |
+| 3    | Every configured site failed to fetch, or every site returned zero postings (a systemic break: network down, or an adapter gone stale) |
 | 4    | Reserved for scoring failures — not used yet; the `none` provider is pure and cannot fail. Introduced when the LLM providers arrive. |
 
 ## Sources and terms

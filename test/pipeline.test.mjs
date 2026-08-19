@@ -153,3 +153,47 @@ test('an unknown scoring provider throws before any site is fetched', async () =
   );
   assert.equal(fetched, false, 'the adapter must not have been fetched');
 });
+
+test('run throws when every site returns zero postings', async () => {
+  fakeAdapter('fake-empty', []);
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-empty', enabled: true }] });
+  await assert.rejects(
+    () => run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger }),
+    /all 1 site\(s\) returned zero postings/
+  );
+});
+
+test('run throws when the only site that did not fail returned zero postings', async () => {
+  fakeAdapter('fake-empty', []);
+  fakeAdapter('fake-bad', [], { fails: true });
+  const cfg = baseConfig({
+    sites: [
+      { id: 's1', company: 'Acme Dynamics', type: 'fake-empty', enabled: true },
+      { id: 's2', company: 'Zenith Motors', type: 'fake-bad', enabled: true },
+    ],
+  });
+  await assert.rejects(
+    () => run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger }),
+    /all 2 site\(s\) returned zero postings/
+  );
+});
+
+test('a site returning zero postings is fine as long as another returned some', async () => {
+  fakeAdapter('fake-empty', []);
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const cfg = baseConfig({
+    sites: [
+      { id: 's1', company: 'Acme Dynamics', type: 'fake-empty', enabled: true },
+      { id: 's2', company: 'Zenith Motors', type: 'fake-ok', enabled: true },
+    ],
+  });
+  const { stats } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
+  assert.equal(stats.scanned, 1);
+});
+
+test('no sites at all is not a zero-postings error', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-ok', enabled: false }] });
+  const { stats } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
+  assert.equal(stats.scanned, 0);
+});
