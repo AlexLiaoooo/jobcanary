@@ -1,0 +1,6 @@
+node_modules/
+digests/
+logs/
+seen.json
+.env
+*.local.yaml
