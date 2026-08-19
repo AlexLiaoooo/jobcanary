@@ -128,3 +128,44 @@ test('fetchDescription returns an empty string rather than throwing on failure',
   const posting = { id: 'vantor:R-1', url: 'https://vantor.wd3.myworkdayjobs.com/en-US/External/job/S/X_R-1' };
   assert.equal(await workday.fetchDescription(posting, site, ctx(http)), '');
 });
+
+const collectingLogger = () => {
+  const warnings = [];
+  return { warnings, log() {}, warn(msg) { warnings.push(msg); }, error() {} };
+};
+
+test('workday skips a row with no title and keeps the rest', async () => {
+  const logger = collectingLogger();
+  const body = JSON.stringify({
+    jobPostings: [
+      { title: 'Thermal Systems Engineer', externalPath: '/job/S/T_R-1', locationsText: '', bulletFields: ['R-1'] },
+      { externalPath: '/job/S/Untitled_R-2', locationsText: '', bulletFields: ['R-2'] },
+    ],
+  });
+  const http = async () => ({ ok: true, status: 200, text: body });
+  const out = await workday.fetch(site, { http, logger, timeoutMs: 1000 });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].id, 'vantor:R-1');
+  assert.equal(logger.warnings.length, 1);
+  assert.match(logger.warnings[0], /\[vantor\].*missing a title/);
+});
+
+test('workday throws when the first page has no jobPostings array', async () => {
+  const http = async () => ({ ok: true, status: 200, text: '{"total":0}' });
+  await assert.rejects(
+    () => workday.fetch(site, ctx(http)),
+    /workday tenant 'vantor': expected a JSON object with a 'jobPostings' array/
+  );
+});
+
+test('workday keeps the first page when a later page returns a broken shape', async () => {
+  const full = JSON.stringify({
+    jobPostings: Array.from({ length: 20 }, (_, i) => ({
+      title: `Role ${i}`, externalPath: `/job/S/Role-${i}_R-${i}`, locationsText: '', bulletFields: [`R-${i}`],
+    })),
+  });
+  let n = 0;
+  const http = async () => { n += 1; return { ok: true, status: 200, text: n === 1 ? full : '{"oops":true}' }; };
+  const out = await workday.fetch(site, ctx(http));
+  assert.equal(out.length, 20);
+});

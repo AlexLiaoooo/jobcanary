@@ -72,3 +72,32 @@ test('lever requires a board in site config', async () => {
     /site 'a' needs 'board'/
   );
 });
+
+const collectingLogger = () => {
+  const warnings = [];
+  return { warnings, log() {}, warn(msg) { warnings.push(msg); }, error() {} };
+};
+
+test('lever skips a row missing hostedUrl and keeps the rest', async () => {
+  const logger = collectingLogger();
+  const body = JSON.stringify([
+    { id: 'a', text: 'Powertrain Engineer', hostedUrl: 'https://jobs.lever.co/n/a' },
+    { id: 'b', text: 'Broken Row' },
+  ]);
+  const out = await lever.fetch(site, { http: stubHttp(body), logger, timeoutMs: 1000 });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].id, 'nordholt:a');
+  assert.equal(logger.warnings.length, 1);
+  assert.match(logger.warnings[0], /\[nordholt\].*missing a url/);
+});
+
+test('lever treats an out-of-range createdAt as no date instead of throwing', async () => {
+  // 1e20 is finite, so Number.isFinite alone lets it through, and
+  // new Date(1e20).toISOString() throws RangeError — which used to lose the board.
+  const body = JSON.stringify([
+    { id: 'a', text: 'Engineer', hostedUrl: 'https://jobs.lever.co/n/a', createdAt: 1e20 },
+  ]);
+  const out = await lever.fetch(site, ctx(stubHttp(body)));
+  assert.equal(out.length, 1);
+  assert.equal(out[0].postedAt, null);
+});

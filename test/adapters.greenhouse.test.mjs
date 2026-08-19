@@ -86,3 +86,30 @@ test('greenhouse requires a board token in site config', async () => {
     /site 'a' needs 'board'/
   );
 });
+
+const collectingLogger = () => {
+  const warnings = [];
+  return { warnings, log() {}, warn(msg) { warnings.push(msg); }, error() {} };
+};
+
+test('greenhouse skips a row missing absolute_url and keeps the rest', async () => {
+  const logger = collectingLogger();
+  const body = JSON.stringify({
+    jobs: [
+      { id: 1, title: 'Graduate Engineer', absolute_url: 'https://example.test/1' },
+      { id: 2, title: 'Broken Row' },
+    ],
+  });
+  const out = await greenhouse.fetch(site, { http: stubHttp(body), logger, timeoutMs: 1000 });
+  assert.equal(out.length, 1);
+  assert.equal(out[0].id, 'acme:1');
+  assert.equal(logger.warnings.length, 1);
+  assert.match(logger.warnings[0], /\[acme\].*missing a url/);
+});
+
+test('greenhouse throws when the 200 body has no jobs array', async () => {
+  await assert.rejects(
+    () => greenhouse.fetch(site, { http: stubHttp('{"results":[]}'), logger: console, timeoutMs: 1000 }),
+    /greenhouse board 'acmedynamics': expected a JSON object with a 'jobs' array/
+  );
+});
