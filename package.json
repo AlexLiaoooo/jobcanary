@@ -1,0 +1,16 @@
+{
+  "name": "jobcanary",
+  "version": "0.1.0",
+  "description": "Config-driven job monitor: polls career sites and ATS boards, filters, scores, and writes a ranked digest.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=20" },
+  "bin": { "jobcanary": "bin/jobcanary.mjs" },
+  "exports": { ".": "./src/index.mjs" },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "yaml": "^2.5.0"
+  }
+}

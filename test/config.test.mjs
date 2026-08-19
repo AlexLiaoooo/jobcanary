@@ -1,0 +1,67 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { parseConfig, compileMatcher, ConfigError } from '../src/config.mjs';
+
+test('compileMatcher treats a plain string as a case-insensitive literal', () => {
+  const re = compileMatcher('head of');
+  assert.ok(re.test('HEAD OF Aerodynamics'));
+  assert.ok(!re.test('headof'));
+});
+
+test('compileMatcher escapes regex metacharacters in literals', () => {
+  const re = compileMatcher('c++');
+  assert.ok(re.test('Senior C++ Engineer'));
+});
+
+test('compileMatcher parses /body/flags as a real regex', () => {
+  const re = compileMatcher('/\\b\\d+\\+ years\\b/i');
+  assert.ok(re.test('needs 5+ years'));
+  assert.ok(!re.test('needs experience'));
+});
+
+test('parseConfig applies defaults for omitted sections', () => {
+  const cfg = parseConfig('sites:\n  - {id: a, company: A, type: greenhouse, board: acme}\n', '/base');
+  assert.equal(cfg.scoring.provider, 'none');
+  assert.equal(cfg.output.format, 'markdown');
+  assert.equal(cfg.dedupe.retentionDays, 30);
+  assert.deepEqual(cfg.rules.exclude, []);
+});
+
+test('parseConfig compiles rule matchers to regexes', () => {
+  const cfg = parseConfig(`
+sites:
+  - {id: a, company: A, type: greenhouse, board: acme}
+rules:
+  exclude:
+    - {id: senior, field: title, match: ["head of"]}
+  annotate:
+    - {id: rtw, field: description, match: ["no sponsorship"], note: "Check eligibility"}
+`, '/base');
+  assert.ok(cfg.rules.exclude[0].match[0] instanceof RegExp);
+  assert.equal(cfg.rules.annotate[0].note, 'Check eligibility');
+});
+
+test('parseConfig rejects config with no sites', () => {
+  assert.throws(() => parseConfig('scoring: {provider: none}\n', '/base'), ConfigError);
+});
+
+test('parseConfig rejects a site missing an id', () => {
+  assert.throws(() => parseConfig('sites:\n  - {company: A, type: greenhouse}\n', '/base'), ConfigError);
+});
+
+test('parseConfig rejects duplicate site ids', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\n  - {id: a, company: B, type: lever, board: y}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('parseConfig rejects an unknown scoring provider', () => {
+  const yaml = 'scoring: {provider: wishful}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('parseConfig defaults site.enabled to true and honours false', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\n  - {id: b, company: B, type: lever, board: y, enabled: false}\n';
+  const cfg = parseConfig(yaml, '/base');
+  assert.equal(cfg.sites[0].enabled, true);
+  assert.equal(cfg.sites[1].enabled, false);
+});
