@@ -118,6 +118,7 @@ scoring:
   model: claude-opus-5
   effort: high
   batch: true
+  keywords: []                 # Consumed only by the none provider
 output:
   dir: ./digests
   format: markdown             # markdown | json | both
