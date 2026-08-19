@@ -1069,7 +1069,7 @@ Create `test/fixtures/lever.json`:
     "id": "b1e7c2a4-0000-4000-8000-000000000001",
     "text": "Powertrain Systems Engineer",
     "hostedUrl": "https://jobs.lever.co/nordholt/b1e7c2a4",
-    "createdAt": 1755388800000,
+    "createdAt": 1786924800000,
     "categories": { "location": "Bicester, UK", "team": "Powertrain", "commitment": "Full-time" },
     "descriptionPlain": "Own the hybrid control strategy.\nRequires MATLAB."
   },
@@ -1077,7 +1077,7 @@ Create `test/fixtures/lever.json`:
     "id": "b1e7c2a4-0000-4000-8000-000000000002",
     "text": "Composites Technician",
     "hostedUrl": "https://jobs.lever.co/nordholt/b1e7c2a5",
-    "createdAt": 1755302400000,
+    "createdAt": 1786838400000,
     "categories": { "location": "Bicester, UK" },
     "descriptionPlain": "Layup and autoclave work."
   }
