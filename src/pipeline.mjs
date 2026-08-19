@@ -17,6 +17,13 @@ import { createHttp } from './http.mjs';
 export async function run(config, { seen = {}, today, browser = false, http, logger = console }) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
 
+  // Resolve the scoring provider before any network work. A provider the
+  // config blesses but the registry does not know about (today: anthropic and
+  // claude-cli) must fail on the first second of the run, not after every site
+  // has been crawled and every enrichment request paid for. This mirrors
+  // getAdapter below, which already fails fast in the `active` filter.
+  const provider = getProvider(config.scoring.provider);
+
   const active = config.sites.filter((site) => {
     if (site.enabled === false) return false;
     const adapter = getAdapter(site.type);
@@ -96,7 +103,6 @@ export async function run(config, { seen = {}, today, browser = false, http, log
   }
 
   // --- score ---
-  const provider = getProvider(config.scoring.provider);
   const postings = await provider.score(enriched, { ...config.scoring, profile: config.profile });
 
   return {

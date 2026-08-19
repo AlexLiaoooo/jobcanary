@@ -121,7 +121,7 @@ Only these three adapters exist today. A larger adapter fleet (static career pag
 ## Scoring providers
 
 - **`none`** (the default) — a deterministic, offline keyword scorer. It counts matches against `scoring.keywords` and never omits a posting; it exists so the tool is fully useful and testable without any API key or network call beyond fetching the listings themselves.
-- **`anthropic`** and **`claude-cli`** — LLM-backed scoring against your `profile`, giving a rationale and a fit judgement per posting. These are planned for a later release and are not implemented yet; setting `scoring.provider` to either one today passes config validation but makes `jobcanary run` fail immediately with a config error (exit 2).
+- **`anthropic`** and **`claude-cli`** — LLM-backed scoring against your `profile`, giving a rationale and a fit judgement per posting. These are planned for a later release and are not implemented yet; setting `scoring.provider` to either one today passes config validation, but `jobcanary run` then stops with a config error (exit 2) before it fetches a single site, so no crawling work is done and discarded.
 
 ## Exit codes
 

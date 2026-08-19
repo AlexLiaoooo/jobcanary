@@ -134,3 +134,22 @@ test('duplicate ids within a run are collapsed', async () => {
   const { postings } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
   assert.equal(postings.length, 1);
 });
+
+test('an unknown scoring provider throws before any site is fetched', async () => {
+  // 'anthropic' passes config validation but is not registered yet, so it is
+  // the real-world case: the whole crawl must not be paid for and discarded.
+  let fetched = false;
+  registerAdapter({
+    id: 'fake-counting', tier: 'http', yieldsDescription: true,
+    async fetch() { fetched = true; return []; },
+  });
+  const cfg = baseConfig({
+    scoring: { provider: 'anthropic', model: 'claude-opus-5', effort: 'high', batch: true, keywords: [] },
+    sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-counting', enabled: true }],
+  });
+  await assert.rejects(
+    () => run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger }),
+    /unknown scoring provider 'anthropic'/
+  );
+  assert.equal(fetched, false, 'the adapter must not have been fetched');
+});
