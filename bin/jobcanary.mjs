@@ -65,7 +65,7 @@ async function main() {
   // would report. It just does not write anything back.
   const seen = loadSeen(seenPath);
 
-  const { postings, stats } = await run(config, { seen, today: date, browser: values.browser });
+  const { postings, stats } = await run(config, { seen, browser: values.browser });
 
   // enrichmentFetches is in the summary because it is the run's hidden cost:
   // a posting excluded on its description is re-fetched every run by design,

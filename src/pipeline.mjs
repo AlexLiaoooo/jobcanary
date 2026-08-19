@@ -16,12 +16,12 @@ import { createHttp } from './http.mjs';
  * excluded ids are deliberately not persisted (see the rule loop below).
  *
  * @param {object} config
- * @param {{seen: object, today: string, browser?: boolean, http?: Function, logger?: object}} opts
+ * @param {{seen?: object, browser?: boolean, http?: Function, logger?: object}} [opts]
  * @returns {Promise<{postings: object[], stats: {scanned: number, excluded: number,
  *   excludedIds: string[], alreadySeen: number, kept: number, enrichmentFetches: number,
  *   siteErrors: {site: string, error: string}[]}}>}
  */
-export async function run(config, { seen = {}, today, browser = false, http, logger = console }) {
+export async function run(config, { seen = {}, browser = false, http, logger = console } = {}) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
 
   // Resolve the scoring provider before any network work. A provider the
