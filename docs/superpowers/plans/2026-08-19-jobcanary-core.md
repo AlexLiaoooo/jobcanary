@@ -16,7 +16,7 @@
 - Exactly one runtime dependency in Plan 1: `yaml`. Do not add others.
 - Never use `Date.now()` or `new Date()` inside pure functions — the caller passes `today` explicitly, so tests are deterministic.
 - All network access goes through `ctx.http`, never a bare global `fetch`. Tests inject a stub.
-- No absolute paths, no personal names, no real company data in source or fixtures. Fixtures use fictional companies.
+- No absolute paths, no personal names, no real company data in source or fixtures. Fixtures use fictional companies. This targets *private* data: local filesystem paths, the author's real name in comments, a real CV. The project's own public identity is exempt — the repo URL in the crawler's User-Agent is deliberate, because a bot that identifies itself and links to its source is how a site operator finds out who is hitting them.
 - Exit codes: `0` ok · `1` unexpected · `2` config invalid · `3` all sites failed · `4` scoring failed (digest still written). **Exit 4 is not implemented in Plan 1** — the `none` provider is pure and cannot fail. Plan 3 adds it with the `anthropic` provider.
 - Every posting id is `${site.id}:${nativeId}`.
 - Commit after every task.
