@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join, resolve, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, resolve } from 'node:path';
 import { loadConfig, ConfigError } from '../src/config.mjs';
 import { run } from '../src/pipeline.mjs';
 import { renderDigest } from '../src/output/markdown.mjs';
@@ -16,13 +15,13 @@ Usage:
 
 Options:
   -c, --config <path>   Config file (default: ./jobcanary.yaml)
-  -p, --preset <name>   Use a bundled preset from presets/<name>.yaml
+  -p, --preset <name>   Not available yet — no presets are bundled in this release
       --out <dir>       Override the output directory
       --browser         Include browser-tier sites
       --dry             Fetch and report, but write nothing
   -h, --help            Show this help
 
-Exit codes: 0 ok · 1 unexpected · 2 config invalid · 3 all sites failed · 4 scoring failed
+Exit codes: 0 ok · 1 unexpected · 2 config invalid · 3 all sites failed or no postings · 4 scoring failed
 `.trim();
 
 function today() {
@@ -51,10 +50,17 @@ async function main() {
     return 2;
   }
 
-  const here = dirname(fileURLToPath(import.meta.url));
-  const configPath = values.preset
-    ? resolve(here, '..', 'presets', `${values.preset}.yaml`)
-    : resolve(values.config ?? './jobcanary.yaml');
+  // The flag is kept so the failure is a sentence rather than a puzzle: with a
+  // presets/ directory that does not exist on this branch, resolving the path
+  // produced a bare "could not read config at .../presets/x.yaml".
+  if (values.preset !== undefined) {
+    throw new ConfigError(
+      `--preset is not available yet: no presets are bundled in this release, so there is no preset '${values.preset}'. ` +
+      'Write a config file and pass it with --config <path> instead.'
+    );
+  }
+
+  const configPath = resolve(values.config ?? './jobcanary.yaml');
 
   const config = loadConfig(configPath);
   if (values.out) config.output.dir = resolve(values.out);

@@ -62,3 +62,15 @@ sites:
   assert.equal(r.code, 3);
   assert.deepEqual(readdirSync(dir).filter((f) => f === 'out'), []);
 });
+
+test('--preset says presets are not bundled yet rather than a missing-file error', () => {
+  const r = runCli(['run', '--preset', 'uk-motorsport']);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /--preset is not available yet: no presets are bundled/);
+  assert.doesNotMatch(r.stderr, /could not read config/);
+});
+
+test('--help says the preset flag is not available yet', () => {
+  const r = runCli(['--help']);
+  assert.match(r.stdout, /--preset <name>\s+Not available yet/);
+});
