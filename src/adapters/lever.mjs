@@ -1,4 +1,20 @@
 import { makePosting } from '../posting.mjs';
+import { fetchJson, mapRows } from './fetch-json.mjs';
+
+/**
+ * Convert Lever's epoch-millisecond `createdAt` to an ISO date.
+ *
+ * `Number.isFinite` alone is not enough: 1e20 is finite but out of Date's
+ * range, and `new Date(1e20).toISOString()` throws `RangeError: Invalid time
+ * value`. An unusable date is not worth losing a board over, so it becomes
+ * null like any other missing field.
+ */
+function isoDateFromEpochMs(ms) {
+  if (!Number.isFinite(ms)) return null;
+  const date = new Date(ms);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
 
 /**
  * Lever exposes an unauthenticated postings API returning a bare JSON array.
@@ -15,20 +31,15 @@ export default {
     if (!site.board) throw new Error(`site '${site.id}' needs 'board' for the lever adapter`);
 
     const url = `https://api.lever.co/v0/postings/${site.board}?mode=json`;
-    const res = await ctx.http(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) throw new Error(`lever board '${site.board}' returned HTTP ${res.status}`);
+    const jobs = await fetchJson(
+      ctx,
+      url,
+      { headers: { Accept: 'application/json' } },
+      `lever board '${site.board}'`,
+      { array: true }
+    );
 
-    let data;
-    try {
-      data = JSON.parse(res.text);
-    } catch {
-      throw new Error(`lever board '${site.board}' returned a body that is not valid JSON`);
-    }
-    if (!Array.isArray(data)) {
-      throw new Error(`lever board '${site.board}': expected a JSON array of postings`);
-    }
-
-    return data.map((job) =>
+    return mapRows(jobs, ctx, site, (job) =>
       makePosting({
         site,
         nativeId: job.id,
@@ -37,9 +48,7 @@ export default {
         location: job.categories?.location ?? '',
         description: job.descriptionPlain ?? '',
         // Lever sends epoch milliseconds, not a date string.
-        postedAt: Number.isFinite(job.createdAt)
-          ? new Date(job.createdAt).toISOString().slice(0, 10)
-          : null,
+        postedAt: isoDateFromEpochMs(job.createdAt),
       })
     );
   },

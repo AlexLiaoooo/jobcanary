@@ -1,4 +1,5 @@
 import { makePosting, stripHtml } from '../posting.mjs';
+import { fetchJson, mapRows } from './fetch-json.mjs';
 
 const PAGE = 20;        // Workday CXS silently caps `limit` at 20.
 const MAX_PAGES = 5;    // 100 postings is plenty for a daily monitor.
@@ -31,31 +32,31 @@ export default {
     const out = [];
 
     for (let page = 0; page < MAX_PAGES; page += 1) {
-      const res = await ctx.http(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: JSON.stringify({
-          appliedFacets: {}, limit: PAGE, offset: page * PAGE, searchText: site.searchText ?? '',
-        }),
-      });
-
-      if (!res.ok) {
-        if (page === 0) throw new Error(`workday tenant '${site.tenant}' returned HTTP ${res.status}`);
+      let rows;
+      try {
+        rows = await fetchJson(
+          ctx,
+          url,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              appliedFacets: {}, limit: PAGE, offset: page * PAGE, searchText: site.searchText ?? '',
+            }),
+          },
+          `workday tenant '${site.tenant}'`,
+          // No `jobPostings` array means the endpoint changed shape; that is a
+          // site error, not a tenant with no vacancies.
+          { arrayAt: 'jobPostings' }
+        );
+      } catch (err) {
+        if (page === 0) throw err;
         break; // a later page failing still leaves earlier pages usable
       }
 
-      let data;
-      try {
-        data = JSON.parse(res.text);
-      } catch {
-        if (page === 0) throw new Error(`workday tenant '${site.tenant}' returned a body that is not valid JSON`);
-        break;
-      }
-
-      const rows = data.jobPostings ?? [];
-      for (const job of rows) {
+      out.push(...mapRows(rows, ctx, site, (job) => {
         const path = job.externalPath ?? '';
-        out.push(makePosting({
+        return makePosting({
           site,
           // bulletFields normally carries the requisition id; the slug is the fallback.
           nativeId: job.bulletFields?.[0] ?? path.split('/').pop() ?? path,
@@ -64,8 +65,8 @@ export default {
           location: job.locationsText ?? '',
           description: '',
           postedAt: null, // `postedOn` is prose ("Posted 2 Days Ago"), not a date
-        }));
-      }
+        });
+      }));
 
       if (rows.length < PAGE) break;
     }

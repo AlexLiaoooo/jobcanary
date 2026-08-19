@@ -1,4 +1,5 @@
 import { makePosting, stripHtml } from '../posting.mjs';
+import { fetchJson, mapRows } from './fetch-json.mjs';
 
 /**
  * Greenhouse job boards expose an unauthenticated JSON API. With
@@ -16,19 +17,17 @@ export default {
     if (!site.board) throw new Error(`site '${site.id}' needs 'board' for the greenhouse adapter`);
 
     const url = `https://boards-api.greenhouse.io/v1/boards/${site.board}/jobs?content=true`;
-    const res = await ctx.http(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) {
-      throw new Error(`greenhouse board '${site.board}' returned HTTP ${res.status}`);
-    }
+    const jobs = await fetchJson(
+      ctx,
+      url,
+      { headers: { Accept: 'application/json' } },
+      `greenhouse board '${site.board}'`,
+      // A 200 whose body carries no `jobs` array is a broken board, not an
+      // empty one. Reporting zero postings would hide a renamed field forever.
+      { arrayAt: 'jobs' }
+    );
 
-    let data;
-    try {
-      data = JSON.parse(res.text);
-    } catch {
-      throw new Error(`greenhouse board '${site.board}' returned a body that is not valid JSON`);
-    }
-
-    return (data.jobs ?? []).map((job) =>
+    return mapRows(jobs, ctx, site, (job) =>
       makePosting({
         site,
         nativeId: job.id,
