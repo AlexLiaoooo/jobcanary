@@ -65,3 +65,20 @@ test('parseConfig defaults site.enabled to true and honours false', () => {
   assert.equal(cfg.sites[0].enabled, true);
   assert.equal(cfg.sites[1].enabled, false);
 });
+
+test('parseConfig rejects a non-array rules.exclude', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\nrules:\n  exclude: {id: senior, field: title, match: ["x"]}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('parseConfig rejects a non-array rules.annotate', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\nrules:\n  annotate: {id: rtw, field: title, match: ["x"], note: "n"}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('compileMatcher honours the flags given and does not force case-insensitivity', () => {
+  const sensitive = compileMatcher('/PhD/');
+  assert.ok(sensitive.test('a PhD required'));
+  assert.ok(!sensitive.test('a phd required'));
+  assert.ok(compileMatcher('/PhD/i').test('a phd required'));
+});

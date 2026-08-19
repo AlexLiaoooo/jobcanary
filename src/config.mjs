@@ -17,7 +17,8 @@ const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Compile one match specification into a RegExp.
- * '/body/flags' produces a real regex; anything else is a case-insensitive literal.
+ * Plain strings are matched case-insensitively as literals (escaped for regex metacharacters).
+ * /body/flags syntax creates a real regex using exactly the flags given, so /PhD/ is case-sensitive while /PhD/i is not.
  */
 export function compileMatcher(spec) {
   if (typeof spec !== 'string' || spec.length === 0) {
@@ -26,7 +27,7 @@ export function compileMatcher(spec) {
   const m = spec.match(/^\/(.*)\/([gimsuy]*)$/s);
   if (m) {
     try {
-      return new RegExp(m[1], m[2].includes('i') ? m[2] : m[2] + 'i');
+      return new RegExp(m[1], m[2]);
     } catch (err) {
       throw new ConfigError(`invalid regex ${spec}: ${err.message}`);
     }
@@ -105,14 +106,25 @@ export function parseConfig(text, baseDir) {
   }
 
   const seenIds = new Set();
+
+  const excludeRules = raw.rules?.exclude ?? [];
+  if (!Array.isArray(excludeRules)) {
+    throw new ConfigError('rules.exclude must be a list');
+  }
+
+  const annotateRules = raw.rules?.annotate ?? [];
+  if (!Array.isArray(annotateRules)) {
+    throw new ConfigError('rules.annotate must be a list');
+  }
+
   return {
     profile: raw.profile ? resolve(baseDir, raw.profile) : null,
     scoring,
     output,
     dedupe: { retentionDays },
     rules: {
-      exclude: (raw.rules?.exclude ?? []).map((r, i) => compileRule(r, 'exclude', i)),
-      annotate: (raw.rules?.annotate ?? []).map((r, i) => compileRule(r, 'annotate', i)),
+      exclude: excludeRules.map((r, i) => compileRule(r, 'exclude', i)),
+      annotate: annotateRules.map((r, i) => compileRule(r, 'annotate', i)),
     },
     sites: raw.sites.map((s, i) => validateSite(s, i, seenIds)),
   };
