@@ -138,6 +138,23 @@ test('parseConfig defaults site.enabled to true and honours false', () => {
   assert.equal(cfg.sites[0].enabled, true);
   assert.equal(cfg.sites[1].enabled, false);
 });
+
+test('compileMatcher honours the flags given and does not force case-insensitivity', () => {
+  const sensitive = compileMatcher('/PhD/');
+  assert.ok(sensitive.test('a PhD required'));
+  assert.ok(!sensitive.test('a phd required'));
+  assert.ok(compileMatcher('/PhD/i').test('a phd required'));
+});
+
+test('parseConfig rejects a non-array rules.exclude', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\nrules:\n  exclude: {id: senior, field: title, match: ["x"]}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('parseConfig rejects a non-array rules.annotate', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\nrules:\n  annotate: {id: rtw, field: title, match: ["x"], note: "n"}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -169,7 +186,11 @@ const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Compile one match specification into a RegExp.
- * '/body/flags' produces a real regex; anything else is a case-insensitive literal.
+ *
+ * A plain string is matched case-insensitively as a literal, which is what a
+ * rule author almost always wants. The '/body/flags' form is the escape hatch
+ * for precision and uses exactly the flags given — '/PhD/' is case-sensitive,
+ * '/PhD/i' is not.
  */
 export function compileMatcher(spec) {
   if (typeof spec !== 'string' || spec.length === 0) {
@@ -178,7 +199,7 @@ export function compileMatcher(spec) {
   const m = spec.match(/^\/(.*)\/([gimsuy]*)$/s);
   if (m) {
     try {
-      return new RegExp(m[1], m[2].includes('i') ? m[2] : m[2] + 'i');
+      return new RegExp(m[1], m[2]);
     } catch (err) {
       throw new ConfigError(`invalid regex ${spec}: ${err.message}`);
     }
@@ -256,6 +277,15 @@ export function parseConfig(text, baseDir) {
     throw new ConfigError('dedupe.retentionDays must be a positive integer');
   }
 
+  // Guard before mapping: a non-nullish non-array (`exclude: {…}`, i.e. a
+  // forgotten list dash) slips past `?? []` and would throw a raw TypeError,
+  // which escapes as exit 1 instead of the exit 2 the config contract promises.
+  const ruleList = (value, kind) => {
+    const list = value ?? [];
+    if (!Array.isArray(list)) throw new ConfigError(`rules.${kind} must be a list`);
+    return list;
+  };
+
   const seenIds = new Set();
   return {
     profile: raw.profile ? resolve(baseDir, raw.profile) : null,
@@ -263,8 +293,8 @@ export function parseConfig(text, baseDir) {
     output,
     dedupe: { retentionDays },
     rules: {
-      exclude: (raw.rules?.exclude ?? []).map((r, i) => compileRule(r, 'exclude', i)),
-      annotate: (raw.rules?.annotate ?? []).map((r, i) => compileRule(r, 'annotate', i)),
+      exclude: ruleList(raw.rules?.exclude, 'exclude').map((r, i) => compileRule(r, 'exclude', i)),
+      annotate: ruleList(raw.rules?.annotate, 'annotate').map((r, i) => compileRule(r, 'annotate', i)),
     },
     sites: raw.sites.map((s, i) => validateSite(s, i, seenIds)),
   };
@@ -284,7 +314,7 @@ export function loadConfig(filePath) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS — 9 config tests
+Expected: PASS — 13 config tests
 
 - [ ] **Step 6: Commit**
 
