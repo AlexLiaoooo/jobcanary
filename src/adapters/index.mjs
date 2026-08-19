@@ -1,7 +1,9 @@
 import greenhouse from './greenhouse.mjs';
+import lever from './lever.mjs';
 
 const ADAPTERS = new Map([
   [greenhouse.id, greenhouse],
+  [lever.id, lever],
 ]);
 
 export function getAdapter(type) {
