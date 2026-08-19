@@ -2577,3 +2577,85 @@ hash of the compiled rules. Plan 1 only exposes the cost via
 outputs, prompt caching, Batch API), `claude-cli` provider, the
 `uk-motorsport` preset, the GitHub Actions daily workflow, CI, and the public
 repo push.
+
+## Carried findings — pick these up in Plan 2
+
+Reviewed during Plan 1, judged non-blocking, and deliberately carried. Grouped
+by where they will bite.
+
+**Before writing the ten new adapters:**
+
+- `src/adapters/fetch-json.mjs` now owns non-2xx handling, unparseable bodies,
+  shape validation, and tolerant row mapping. Every new adapter must route
+  through it rather than re-implementing the try/catch — that is the whole
+  reason it was extracted before the fleet arrived.
+- Nothing rate-limits anything. Fetches are sequential, which is polite, but 88
+  sites plus per-posting enrichment sequentially will be slow enough that
+  someone will reach for `Promise.all`. Decide the concurrency and
+  inter-request delay policy deliberately, and put it in the spec — the README
+  already promises users a reasonable request rate.
+- `fetchDescription` is a de facto fourth member of the adapter interface and
+  is undocumented in the spec. Its contract — return `''` on any failure, never
+  throw — exists only as discipline inside `workday.mjs`, and the pipeline has
+  no try/catch around the call. An adapter author who throws from it crashes
+  the run. Document it, or guard it.
+- `ctx.browser` appears in the spec's `ctx` and does not exist in the code.
+  `--browser` currently only un-skips sites; there is no browser to hand them.
+
+**Before writing the LLM providers:**
+
+- Write down the provider contract first: return exactly one `Scored` per input
+  posting, and use `verdict: 'omit'` to suppress rather than dropping the
+  posting from the array. Nothing enforces this today, and a provider that
+  drops a posting makes it immortal — re-fetched, re-enriched, and re-offered
+  every run forever, with no error. Consider a length assertion in `run` after
+  the `score` call.
+- The spec's scoring-failure fallback cannot be built on `run`'s current shape.
+  It requires that a failing scoring call still writes an unscored digest
+  (exit 4), but a provider throw currently propagates out of `run` and the
+  fetch work is lost. `run` will need to catch, return the unscored postings
+  with a `scoringError` in `stats`, and let the CLI decide. That is a change to
+  `run`'s return contract — make it before ten adapters and two providers
+  depend on the current one.
+- `stats.kept` counts everything the provider returned; the Markdown writer
+  filters `verdict === 'omit'`. Identical today, divergent the moment a
+  provider omits anything, at which point the CLI's summary line will disagree
+  with the digest it just wrote.
+
+**Smaller, and safe to batch:**
+
+- `src/config.mjs` — a non-object scalar for `scoring`/`output`/`dedupe` (e.g.
+  `scoring: banana`) silently falls back to the full default block.
+- `src/posting.mjs` — `makePosting` uses `site?.id` in error paths but bare
+  `site.id`/`site.company` on the success path.
+- `src/dedupe.mjs` — `saveSeen` leaves a `.tmp` file if the process dies
+  between write and rename; nothing sweeps stale ones. A corrupt `seen.json`
+  exits 1 with a stack trace where exit 2 would read better.
+- `src/dedupe.mjs` — the retention cutoff is inclusive, so `retentionDays: 30`
+  is a 31-day window, and a posting open past the window re-surfaces as new.
+  Both defensible; both deserve a README line, because a user will ask.
+- `src/posting.mjs` / `src/output/markdown.mjs` — titles keep inner newlines
+  and are interpolated straight into a `###` heading, so third-party text can
+  restructure the digest. Low blast radius, but collapse whitespace in
+  `makePosting`.
+- `src/http.mjs` — `res.text()` is unbounded; a runaway response has no cap.
+  `ctx.timeoutMs` is informational and silently lies if a caller injects an
+  `http` with a different timeout.
+- `src/adapters/greenhouse.mjs` — `postedAt` comes from `updated_at`, so an
+  edited year-old posting looks fresh. Defensible; the field name does not say
+  so.
+- `bin/jobcanary.mjs` — `--out` silently relocates `seen.json` alongside the
+  digests, so an `--out` run re-reports everything as new and seeds a second,
+  divergent state file. `--preset x` without the `run` positional prints help
+  instead of the preset error.
+- `.gitignore` ignores `seen.json`, which Plan 3's Actions flow needs to commit
+  back to the user's fork. That will need an exception.
+- `node --test` walks the whole repo tree; `node --test test/` is equally
+  portable and tighter.
+- `test/cli.test.mjs` would flake if its two child runs straddle midnight UTC.
+- No test covers `browser: true` actually including a browser-tier site — only
+  the skip path. Plan 2 adds the tier, so close it there.
+- `src/adapters/workday.mjs` — the later-page-failure tolerance and the
+  `MAX_PAGES` cap have no test coverage.
+- `src/scoring/index.mjs` — `registerProvider` has no test and no caller until
+  a second provider exists.
