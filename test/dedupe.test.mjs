@@ -59,7 +59,7 @@ test('loadSeen rejects a file containing null', () => {
   const dir = mkdtempSync(join(tmpdir(), 'jc-'));
   const p = join(dir, 'seen.json');
   writeFileSync(p, 'null', 'utf8');
-  assert.throws(() => loadSeen(p), /Invalid dedup state.*got a null/s);
+  assert.throws(() => loadSeen(p), /Invalid dedup state.*got null/s);
 });
 
 test('loadSeen rejects a file containing an array or a scalar', () => {

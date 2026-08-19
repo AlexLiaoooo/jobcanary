@@ -1,6 +1,10 @@
 import { readFileSync, writeFileSync, renameSync, existsSync } from 'node:fs';
 
-const describe = (value) => (Array.isArray(value) ? 'an array' : `a ${value === null ? 'null' : typeof value}`);
+const describe = (value) => {
+  if (Array.isArray(value)) return 'an array';
+  if (value === null) return 'null';
+  return `a ${typeof value}`;
+};
 
 /**
  * Read the dedup state.
