@@ -64,22 +64,25 @@ jobcanary run --config jobcanary.yaml --dry
 A config file is YAML. Every key below is optional except `sites`.
 
 ```yaml
-profile: ./profile.md        # optional; a free-text file describing you, passed to scoring providers that use it
+profile: ./profile.md        # optional; a free-text file describing you, passed to scoring providers that use it (default: none)
 
 output:
   dir: ./digests              # where digests and seen.json are written (default: ./digests)
   format: markdown            # markdown | json | both (default: markdown)
 
 dedupe:
-  retentionDays: 30           # how long a posting id is remembered in seen.json (default: 30)
+  retentionDays: 30           # positive integer; how long a posting id is remembered in seen.json (default: 30)
 
 scoring:
   provider: none               # none | anthropic | claude-cli (default: none)
-  keywords: [graduate, cfd]     # used only by the 'none' provider
+  keywords: [graduate, cfd]     # used only by the 'none' provider (default: [])
+  model: claude-opus-5           # reserved for the 'anthropic'/'claude-cli' providers (default: claude-opus-5)
+  effort: high                    # reserved for the 'anthropic'/'claude-cli' providers (default: high)
+  batch: true                      # reserved for the 'anthropic' provider's Batch API (default: true)
 
-rules:
+rules:                        # optional; both lists default to empty (no filtering, nothing excluded)
   exclude:                     # postings matching any exclude rule are dropped entirely
-    - id: senior                # required, unique, used only for logging
+    - id: senior                # required (any truthy value); identifies the rule in the internal verdict, not surfaced in the digest or logs — not required to be unique
       field: title               # title | company | location | description | all (default: all)
       match: ["senior", "/^head of/i"]   # plain strings match case-insensitively as literals;
                                           # a /regex/flags string compiles as a real regex
@@ -96,6 +99,8 @@ sites:                         # required, at least one entry
     enabled: true                  # optional (default: true) — set false to keep a site configured but skip it
     board: acmedynamics             # adapter-specific fields go here; see below
 ```
+
+`scoring.model`, `scoring.effort`, and `scoring.batch` are parsed and defaulted by the config loader today, but nothing reads them yet — the `none` provider ignores all three. They exist so that a config file written against the `anthropic`/`claude-cli` providers arriving in a later release will already validate; setting them now is harmless but has no effect on a run.
 
 Each `match` entry is either a plain string (matched case-insensitively as a literal substring/word) or a `/pattern/flags` string, which compiles to a real `RegExp` with exactly the flags given — so `/PhD/` is case-sensitive while `/PhD/i` is not.
 
