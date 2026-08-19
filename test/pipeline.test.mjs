@@ -197,3 +197,47 @@ test('no sites at all is not a zero-postings error', async () => {
   const { stats } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
   assert.equal(stats.scanned, 0);
 });
+
+test('stats report the ids excluded by rules this run', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Head of Aero' }, { n: 2, title: 'Graduate Engineer' }]);
+  const cfg = baseConfig({
+    rules: { exclude: [{ id: 'senior', field: 'title', match: [compileMatcher('head of')] }], annotate: [] },
+  });
+  const { stats } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
+  assert.deepEqual(stats.excludedIds, ['s1:1']);
+});
+
+test('stats report ids excluded in the second, description-based pass', async () => {
+  fakeAdapter('fake-thin', [{ n: 1, title: 'Graduate Engineer' }], { yieldsDescription: false });
+  const cfg = baseConfig({
+    sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-thin', enabled: true }],
+    // The fake adapter's fetchDescription returns 'fetched description', which
+    // only the post-enrichment pass can see.
+    rules: { exclude: [{ id: 'desc', field: 'description', match: [compileMatcher('fetched description')] }], annotate: [] },
+  });
+  const { postings, stats } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
+  assert.equal(postings.length, 0);
+  assert.deepEqual(stats.excludedIds, ['s1:1']);
+  assert.equal(stats.excluded, 1);
+});
+
+test('stats count one enrichment fetch per posting that needed one', async () => {
+  fakeAdapter('fake-thin', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }], { yieldsDescription: false });
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-thin', enabled: true }] });
+  const { stats } = await run(cfg, { seen: {}, today: '2026-08-19', logger: quietLogger });
+  assert.equal(stats.enrichmentFetches, 2);
+});
+
+test('an adapter that ships descriptions costs no enrichment fetches', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const { stats } = await run(baseConfig(), { seen: {}, today: '2026-08-19', logger: quietLogger });
+  assert.equal(stats.enrichmentFetches, 0);
+  assert.deepEqual(stats.excludedIds, []);
+});
+
+test('an already-seen posting costs no enrichment fetch', async () => {
+  fakeAdapter('fake-thin', [{ n: 1, title: 'Graduate Engineer' }], { yieldsDescription: false });
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-thin', enabled: true }] });
+  const { stats } = await run(cfg, { seen: { 's1:1': '2026-08-18' }, today: '2026-08-19', logger: quietLogger });
+  assert.equal(stats.enrichmentFetches, 0);
+});

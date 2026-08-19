@@ -106,6 +106,16 @@ Each `match` entry is either a plain string (matched case-insensitively as a lit
 
 The `g` and `y` flags are accepted but ignored: they make a `RegExp` stateful (`.test()` advances `lastIndex`), and a rule is compiled once and reused for every posting, so honouring them would make a rule match every *other* posting. `/senior/gi` therefore behaves exactly like `/senior/i`.
 
+### Postings excluded on their description are re-fetched every run
+
+`seen.json` records only the postings that reached a digest. A posting dropped by an `exclude` rule is never recorded — so for a `workday` site, whose descriptions cost a second request per posting, that detail page is fetched again on the next run, and on every run after that.
+
+This is deliberate. Recording exclusions would stop the repeat fetch, at the price of a worse failure: your rules are live and editable, and a posting excluded under yesterday's rules has to be able to surface once you loosen them. State that outlives the rule which produced it silently contradicts your config.
+
+The cost is reported rather than hidden. The run summary's `enrichmentFetches=` count is the number of detail requests the run actually performed; `stats.enrichmentFetches` carries the same number to library callers and into the JSON digest, alongside `stats.excludedIds`. If that count is high and `kept` is low, prefer rules that match on `title` (no detail request needed) over rules that match on `description`.
+
+A later release will make this converge properly — a separate excluded-id map, invalidated by a hash of the rules, so an exclusion is remembered only for as long as the rules that produced it are unchanged.
+
 ## Adapters
 
 Every adapter reads a site's public, unauthenticated job API — no login, no API key. The `type` you choose determines which extra fields the site entry needs:

@@ -2565,6 +2565,14 @@ point.
 occupop, ashby, smartrecruiters, personio, sfrss, plus the browser tier and its
 per-site timeout isolation.
 
+**Carried from the Plan 1 review — convergent enrichment state:** postings
+excluded by a description-based rule are re-enriched on every run, because
+`seen.json` records only postings that reached a digest. Deliberately not fixed
+by persisting exclusions (rules are editable; a loosened rule must be able to
+surface an old posting). The fix is a separate excluded-id map invalidated by a
+hash of the compiled rules. Plan 1 only exposes the cost via
+`stats.enrichmentFetches` and `stats.excludedIds`.
+
 **Plan 3 — LLM scoring and publication:** `anthropic` provider (structured
 outputs, prompt caching, Batch API), `claude-cli` provider, the
 `uk-motorsport` preset, the GitHub Actions daily workflow, CI, and the public

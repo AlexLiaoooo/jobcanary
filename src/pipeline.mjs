@@ -11,8 +11,15 @@ import { createHttp } from './http.mjs';
  * The CLI owns reading and writing state, which keeps this function testable
  * without a filesystem and makes it reusable from a library consumer.
  *
+ * `stats.excludedIds` and `stats.enrichmentFetches` are reported so a caller
+ * can see what the rules dropped and what enrichment cost. Neither is state:
+ * excluded ids are deliberately not persisted (see the rule loop below).
+ *
  * @param {object} config
  * @param {{seen: object, today: string, browser?: boolean, http?: Function, logger?: object}} opts
+ * @returns {Promise<{postings: object[], stats: {scanned: number, excluded: number,
+ *   excludedIds: string[], alreadySeen: number, kept: number, enrichmentFetches: number,
+ *   siteErrors: {site: string, error: string}[]}}>}
  */
 export async function run(config, { seen = {}, today, browser = false, http, logger = console }) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
@@ -78,6 +85,11 @@ export async function run(config, { seen = {}, today, browser = false, http, log
 
   let alreadySeen = 0;
   let excluded = 0;
+  // Reported, never persisted. Recording an exclusion in seen.json would make
+  // the redundant detail fetch go away, at the cost of a worse bug: a user who
+  // later loosens a rule would never be shown those postings again. Rules stay
+  // live and editable, so an excluded posting is reconsidered on every run.
+  const excludedIds = [];
   const survivors = [];
   for (const entry of withinRun.values()) {
     if (isSeen(seen, entry.posting.id)) {
@@ -87,16 +99,22 @@ export async function run(config, { seen = {}, today, browser = false, http, log
     const verdict = applyRules(entry.posting, config.rules);
     if (!verdict.keep) {
       excluded += 1;
+      excludedIds.push(entry.posting.id);
       continue;
     }
     survivors.push({ ...entry, posting: { ...entry.posting, notes: verdict.notes } });
   }
 
   // --- enrich: only adapters that do not ship descriptions, only survivors ---
+  // Counted so the cost of the second request per posting is visible in the
+  // stats rather than invisible: postings excluded on their description below
+  // are re-fetched on every run, by design.
+  let enrichmentFetches = 0;
   for (const entry of survivors) {
     if (entry.adapter.yieldsDescription) continue;
     if (typeof entry.adapter.fetchDescription !== 'function') continue;
     entry.posting.description = await entry.adapter.fetchDescription(entry.posting, entry.site, ctx);
+    enrichmentFetches += 1;
   }
 
   // --- re-apply rules now that descriptions exist ---
@@ -109,6 +127,7 @@ export async function run(config, { seen = {}, today, browser = false, http, log
     const verdict = applyRules(entry.posting, config.rules);
     if (!verdict.keep) {
       excluded += 1;
+      excludedIds.push(entry.posting.id);
       continue;
     }
     enriched.push({ ...entry.posting, notes: verdict.notes });
@@ -119,6 +138,14 @@ export async function run(config, { seen = {}, today, browser = false, http, log
 
   return {
     postings,
-    stats: { scanned, excluded, alreadySeen, kept: postings.length, siteErrors },
+    stats: {
+      scanned,
+      excluded,
+      excludedIds,
+      alreadySeen,
+      kept: postings.length,
+      enrichmentFetches,
+      siteErrors,
+    },
   };
 }

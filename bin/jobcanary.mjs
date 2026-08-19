@@ -67,8 +67,12 @@ async function main() {
 
   const { postings, stats } = await run(config, { seen, today: date, browser: values.browser });
 
+  // enrichmentFetches is in the summary because it is the run's hidden cost:
+  // a posting excluded on its description is re-fetched every run by design,
+  // and a number nobody can see is a number nobody can act on.
   console.log(
-    `scanned=${stats.scanned} seen=${stats.alreadySeen} excluded=${stats.excluded} kept=${stats.kept} siteErrors=${stats.siteErrors.length}`
+    `scanned=${stats.scanned} seen=${stats.alreadySeen} excluded=${stats.excluded} ` +
+    `kept=${stats.kept} enrichmentFetches=${stats.enrichmentFetches} siteErrors=${stats.siteErrors.length}`
   );
 
   if (values.dry) {
