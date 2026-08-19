@@ -81,3 +81,22 @@ test('a missing field is treated as empty, not an error', () => {
   });
   assert.equal(r.keep, true);
 });
+
+test('a rule compiled with a /g/ flag excludes three consecutive identical postings', () => {
+  // A compiled rule outlives one posting: it is built at config load and reused
+  // for every posting of every run. A global regex would advance lastIndex on
+  // each .test() and drop every other match.
+  const rules = { exclude: [rule('senior', 'title', '/senior/gi')], annotate: [] };
+  const verdicts = [1, 2, 3].map(() => applyRules(posting({ title: 'Senior Design Engineer' }), rules));
+  assert.deepEqual(verdicts.map((v) => v.keep), [false, false, false]);
+});
+
+test('an annotate rule compiled with a /g/ flag fires on three consecutive identical postings', () => {
+  const rules = {
+    exclude: [],
+    annotate: [note('rtw', 'description', 'Check eligibility', '/no sponsorship/g')],
+  };
+  const p = () => posting({ description: 'We offer no sponsorship.' });
+  const notes = [1, 2, 3].map(() => applyRules(p(), rules).notes);
+  assert.deepEqual(notes, [['Check eligibility'], ['Check eligibility'], ['Check eligibility']]);
+});

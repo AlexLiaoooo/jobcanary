@@ -82,3 +82,20 @@ test('compileMatcher honours the flags given and does not force case-insensitivi
   assert.ok(!sensitive.test('a phd required'));
   assert.ok(compileMatcher('/PhD/i').test('a phd required'));
 });
+
+test('compileMatcher strips the stateful g and y flags so a matcher is reusable', () => {
+  const re = compileMatcher('/senior/gi');
+  assert.equal(re.flags, 'i');
+  // Three, not two: an off-by-one alternation would still pass a two-call check.
+  assert.ok(re.test('Senior Engineer'));
+  assert.ok(re.test('Senior Engineer'));
+  assert.ok(re.test('Senior Engineer'));
+  assert.equal(re.lastIndex, 0);
+});
+
+test('compileMatcher keeps the non-stateful flags alongside a stripped one', () => {
+  const re = compileMatcher('/a.b/gis');
+  assert.equal(re.flags, 'is');
+  assert.ok(re.test('A\nB'));
+  assert.ok(re.test('A\nB'));
+});

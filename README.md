@@ -102,7 +102,9 @@ sites:                         # required, at least one entry
 
 `scoring.model`, `scoring.effort`, and `scoring.batch` are parsed and defaulted by the config loader today, but nothing reads them yet — the `none` provider ignores all three. They exist so that a config file written against the `anthropic`/`claude-cli` providers arriving in a later release will already validate; setting them now is harmless but has no effect on a run.
 
-Each `match` entry is either a plain string (matched case-insensitively as a literal substring/word) or a `/pattern/flags` string, which compiles to a real `RegExp` with exactly the flags given — so `/PhD/` is case-sensitive while `/PhD/i` is not.
+Each `match` entry is either a plain string (matched case-insensitively as a literal substring/word) or a `/pattern/flags` string, which compiles to a real `RegExp` with the flags given — so `/PhD/` is case-sensitive while `/PhD/i` is not.
+
+The `g` and `y` flags are accepted but ignored: they make a `RegExp` stateful (`.test()` advances `lastIndex`), and a rule is compiled once and reused for every posting, so honouring them would make a rule match every *other* posting. `/senior/gi` therefore behaves exactly like `/senior/i`.
 
 ## Adapters
 

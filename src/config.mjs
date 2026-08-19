@@ -19,6 +19,13 @@ const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
  * Compile one match specification into a RegExp.
  * Plain strings are matched case-insensitively as literals (escaped for regex metacharacters).
  * /body/flags syntax creates a real regex using exactly the flags given, so /PhD/ is case-sensitive while /PhD/i is not.
+ *
+ * `g` and `y` are stripped rather than honoured. A matcher is compiled once at
+ * config load and then reused with `.test()` for every posting of every run;
+ * on a global or sticky regex `.test()` advances `lastIndex`, so the same rule
+ * would match, then miss, then match again. `g` is the most reflexively typed
+ * flag there is, and neither flag changes what a rule *means* here — the rules
+ * engine only ever asks "does this text match at all".
  */
 export function compileMatcher(spec) {
   if (typeof spec !== 'string' || spec.length === 0) {
@@ -27,7 +34,7 @@ export function compileMatcher(spec) {
   const m = spec.match(/^\/(.*)\/([gimsuy]*)$/s);
   if (m) {
     try {
-      return new RegExp(m[1], m[2]);
+      return new RegExp(m[1], m[2].replace(/[gy]/g, ''));
     } catch (err) {
       throw new ConfigError(`invalid regex ${spec}: ${err.message}`);
     }
