@@ -99,8 +99,15 @@ export function parseConfig(text, baseDir) {
   }
   if (!Array.isArray(scoring.keywords)) throw new ConfigError('scoring.keywords must be a list');
 
+  // resolve() throws a raw TypeError on a non-string, which the CLI reports as
+  // exit 1 (unexpected) instead of the exit 2 the config contract promises.
+  // `output: {dir: 2026}` is a plausible YAML slip, so it must be a ConfigError.
+  const rawDir = raw.output?.dir;
+  if (rawDir !== undefined && rawDir !== null && typeof rawDir !== 'string') {
+    throw new ConfigError(`output.dir must be a string path, got ${typeof rawDir}`);
+  }
   const output = {
-    dir: resolve(baseDir, raw.output?.dir ?? './digests'),
+    dir: resolve(baseDir, rawDir ?? './digests'),
     format: raw.output?.format ?? 'markdown',
   };
   if (!FORMATS.includes(output.format)) {
@@ -122,6 +129,10 @@ export function parseConfig(text, baseDir) {
   const annotateRules = raw.rules?.annotate ?? [];
   if (!Array.isArray(annotateRules)) {
     throw new ConfigError('rules.annotate must be a list');
+  }
+
+  if (raw.profile !== undefined && raw.profile !== null && typeof raw.profile !== 'string') {
+    throw new ConfigError(`profile must be a string path, got ${typeof raw.profile}`);
   }
 
   return {

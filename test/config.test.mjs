@@ -99,3 +99,23 @@ test('compileMatcher keeps the non-stateful flags alongside a stripped one', () 
   assert.ok(re.test('A\nB'));
   assert.ok(re.test('A\nB'));
 });
+
+test('parseConfig rejects a non-string profile as a config error, not a TypeError', () => {
+  assert.throws(
+    () => parseConfig('profile: 2026\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', 'base'),
+    (err) => err instanceof ConfigError && /profile must be a string path, got number/.test(err.message)
+  );
+});
+
+test('parseConfig rejects a non-string output.dir as a config error, not a TypeError', () => {
+  assert.throws(
+    () => parseConfig('output: {dir: 2026}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', 'base'),
+    (err) => err instanceof ConfigError && /output\.dir must be a string path, got number/.test(err.message)
+  );
+});
+
+test('parseConfig still accepts an omitted or null profile and output.dir', () => {
+  const cfg = parseConfig('profile: ~\noutput: {dir: ~}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', 'base');
+  assert.equal(cfg.profile, null);
+  assert.match(cfg.output.dir, /digests$/);
+});
