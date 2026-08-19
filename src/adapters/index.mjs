@@ -1,9 +1,11 @@
 import greenhouse from './greenhouse.mjs';
 import lever from './lever.mjs';
+import workday from './workday.mjs';
 
 const ADAPTERS = new Map([
   [greenhouse.id, greenhouse],
   [lever.id, lever],
+  [workday.id, workday],
 ]);
 
 export function getAdapter(type) {
