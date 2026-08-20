@@ -1,5 +1,9 @@
 # jobcanary
 
+[![tests](https://github.com/AlexLiaoooo/jobcanary/actions/workflows/ci.yml/badge.svg)](https://github.com/AlexLiaoooo/jobcanary/actions/workflows/ci.yml)
+[![node](https://img.shields.io/badge/node-%E2%89%A520-brightgreen)](https://nodejs.org)
+[![license](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
 A config-driven job monitor: it polls career sites and ATS job boards, filters and scores the postings against rules you define, and writes a ranked Markdown (or JSON) digest.
 
 ## What it does

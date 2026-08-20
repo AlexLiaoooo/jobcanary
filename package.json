@@ -2,11 +2,45 @@
   "name": "jobcanary",
   "version": "0.1.0",
   "description": "Config-driven job monitor: polls career sites and ATS boards, filters, scores, and writes a ranked digest.",
+  "keywords": [
+    "job-search",
+    "jobs",
+    "ats",
+    "greenhouse",
+    "lever",
+    "workday",
+    "job-board",
+    "scraper",
+    "cli",
+    "digest"
+  ],
+  "homepage": "https://github.com/AlexLiaoooo/jobcanary#readme",
+  "bugs": {
+    "url": "https://github.com/AlexLiaoooo/jobcanary/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AlexLiaoooo/jobcanary.git"
+  },
+  "author": "Alex Liao",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=20" },
-  "bin": { "jobcanary": "bin/jobcanary.mjs" },
-  "exports": { ".": "./src/index.mjs" },
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "jobcanary": "bin/jobcanary.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "test": "node --test"
   },
