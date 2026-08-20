@@ -59,6 +59,15 @@ Add `--dry` to fetch and see the counts without writing anything:
 jobcanary run --config jobcanary.yaml --dry
 ```
 
+## Demo
+
+![jobcanary polling two boards, one of which is down, and writing a digest](docs/demo.svg)
+
+One run against two Workday boards: the first returns two postings, the second
+is down. Failures are named rather than passed over, and the rule that matched
+`gt-suite` *annotates* the posting instead of dropping it — that is the whole
+idea of `annotate` rules.
+
 ## What a digest looks like
 
 Sorted by score, ties broken alphabetically by company. Rules that *annotate*
