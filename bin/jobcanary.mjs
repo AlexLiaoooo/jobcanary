@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { loadConfig, ConfigError } from '../src/config.mjs';
 import { run } from '../src/pipeline.mjs';
@@ -26,6 +26,27 @@ Exit codes: 0 ok · 1 unexpected · 2 config invalid · 3 all sites failed or no
 
 function today() {
   return new Date().toISOString().slice(0, 10);
+}
+
+const DIGEST_EXTS = ['md', 'json'];
+
+/**
+ * Decide which file stem this run's digest should be written under.
+ *
+ * A digest is named for the day, but a day can hold more than one run, so the
+ * two can collide. Never overwrite: if today's digest already exists, a run
+ * with nothing new leaves it alone (returns null), and a run that did find
+ * something writes alongside it as `<date>-2`, `-3`, and so on.
+ *
+ * @returns {string|null} the stem to write, or null to write nothing
+ */
+export function digestStem(dir, date, hasPostings) {
+  const taken = (stem) => DIGEST_EXTS.some((ext) => existsSync(join(dir, `${stem}.${ext}`)));
+  if (!taken(date)) return date;
+  if (!hasPostings) return null;
+  for (let n = 2; ; n += 1) {
+    if (!taken(`${date}-${n}`)) return `${date}-${n}`;
+  }
 }
 
 async function main() {
@@ -88,16 +109,24 @@ async function main() {
 
   mkdirSync(config.output.dir, { recursive: true });
 
-  if (config.output.format === 'markdown' || config.output.format === 'both') {
-    const md = renderDigest(postings, { date, scanned: stats.scanned, siteErrors: stats.siteErrors });
-    const target = join(config.output.dir, `${date}.md`);
-    writeFileSync(target, md, 'utf8');
-    console.log(`wrote ${target}`);
-  }
-  if (config.output.format === 'json' || config.output.format === 'both') {
-    const target = join(config.output.dir, `${date}.json`);
-    writeFileSync(target, JSON.stringify({ date, stats, postings }, null, 2), 'utf8');
-    console.log(`wrote ${target}`);
+  const stem = digestStem(config.output.dir, date, postings.length > 0);
+  if (stem === null) {
+    // Today's digest exists and this run found nothing new. Overwriting it
+    // would replace a real digest with "No new postings today" — a second run
+    // on the same day used to destroy the first one's results.
+    console.log(`nothing new since the digest already written for ${date} — left it untouched`);
+  } else {
+    if (config.output.format === 'markdown' || config.output.format === 'both') {
+      const md = renderDigest(postings, { date, scanned: stats.scanned, siteErrors: stats.siteErrors });
+      const target = join(config.output.dir, `${stem}.md`);
+      writeFileSync(target, md, 'utf8');
+      console.log(`wrote ${target}`);
+    }
+    if (config.output.format === 'json' || config.output.format === 'both') {
+      const target = join(config.output.dir, `${stem}.json`);
+      writeFileSync(target, JSON.stringify({ date, stats, postings }, null, 2), 'utf8');
+      console.log(`wrote ${target}`);
+    }
   }
 
   let next = seen;

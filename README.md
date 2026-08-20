@@ -160,6 +160,13 @@ The cost is reported rather than hidden. The run summary's `enrichmentFetches=` 
 
 A later release will make this converge properly — a separate excluded-id map, invalidated by a hash of the rules, so an exclusion is remembered only for as long as the rules that produced it are unchanged.
 
+### Running more than once in a day
+
+A digest is named for the day, but a day can hold more than one run. jobcanary
+never overwrites one: a later run that finds nothing new leaves the existing
+digest alone, and a later run that does find something writes alongside it as
+`2026-08-20-2.md`. Nothing a run produced is ever replaced by a later one.
+
 ## Adapters
 
 Every adapter reads a site's public, unauthenticated job API — no login, no API key. The `type` you choose determines which extra fields the site entry needs:

@@ -162,7 +162,42 @@ test('a second run against the same state reports the postings as already seen',
   assert.match(second.stdout, /scanned=2 seen=2 excluded=0 kept=0/);
   // Nothing new survived the seen filter, so nothing was enriched either.
   assert.match(second.stdout, /enrichmentFetches=0/);
-  assert.match(readFileSync(join(out, digestName(out)), 'utf8'), /No new postings today/);
+});
+
+test('a second run with nothing new leaves the existing digest untouched', async () => {
+  const { cfg, out } = workspace();
+  await runCli(['run', '--config', cfg]);
+  const name = digestName(out);
+  const before = readFileSync(join(out, name), 'utf8');
+  assert.match(before, /\*\*New:\*\* 2/, 'the first run should have produced a real digest');
+
+  const second = await runCli(['run', '--config', cfg]);
+  assert.equal(second.code, 0);
+  assert.match(second.stdout, /left it untouched/);
+  assert.doesNotMatch(second.stdout, /^wrote /m);
+
+  // The whole point: the first run's results survive a second run.
+  assert.equal(readFileSync(join(out, name), 'utf8'), before);
+  assert.deepEqual(readdirSync(out).filter((f) => f.endsWith('.md')), [name]);
+});
+
+test('a later run that does find something new writes alongside, never over', async () => {
+  const { cfg, out } = workspace();
+  await runCli(['run', '--config', cfg]);
+  const name = digestName(out);
+  const before = readFileSync(join(out, name), 'utf8');
+
+  // Forget what was seen, so this run has genuinely new postings to report
+  // while today's digest already exists.
+  writeFileSync(join(out, 'seen.json'), '{}', 'utf8');
+
+  const second = await runCli(['run', '--config', cfg]);
+  assert.equal(second.code, 0);
+  const suffixed = name.replace(/\.md$/, '-2.md');
+  assert.ok(second.stdout.includes(suffixed), `expected stdout to name ${suffixed}`);
+  assert.equal(readFileSync(join(out, name), 'utf8'), before, 'the earlier digest must be intact');
+  assert.match(readFileSync(join(out, suffixed), 'utf8'), /\*\*New:\*\* 2/);
+  assert.deepEqual(readdirSync(out).filter((f) => f.endsWith('.md')).sort(), [name, suffixed].sort());
 });
 
 test('every site failing exits 3', async () => {
