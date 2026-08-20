@@ -118,6 +118,7 @@ scoring:
   model: claude-opus-5
   effort: high
   batch: true
+  keywords: []                 # Consumed only by the none provider
 output:
   dir: ./digests
   format: markdown             # markdown | json | both
@@ -258,6 +259,21 @@ publishing requires the author's explicit decision.
 
 The deterministic core (1–4) lands first so every later stage has something
 real to run against.
+
+## Deferred to a later plan
+
+**Convergent enrichment state.** The dedup file records only postings that
+reached a digest, so a posting excluded by a description-based rule has its
+detail page re-fetched on every subsequent run, forever. Recording those
+exclusions in `seen.json` is *not* the fix: rules are live and editable, and a
+user who later loosens a rule would never be shown those postings again — a
+worse bug than the redundant request. Plan 1 exposes the cost instead
+(`stats.enrichmentFetches`, `stats.excludedIds`, and the CLI summary line).
+
+The proper fix, deferred: a separate excluded-id map, keyed by posting id and
+invalidated by a hash of the compiled rules. An exclusion is then remembered
+only while the rules that produced it are unchanged, and editing any rule
+re-opens every posting it could affect.
 
 ## Explicitly out of scope
 

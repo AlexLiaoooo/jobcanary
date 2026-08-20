@@ -1,0 +1,19 @@
+{
+  "total": 2,
+  "jobPostings": [
+    {
+      "title": "Thermal Systems Engineer",
+      "externalPath": "/job/Bicester/Thermal-Systems-Engineer_R-1001",
+      "locationsText": "Bicester, United Kingdom",
+      "postedOn": "Posted 2 Days Ago",
+      "bulletFields": ["R-1001"]
+    },
+    {
+      "title": "Graduate Simulation Engineer",
+      "externalPath": "/job/Bicester/Graduate-Simulation-Engineer_R-1002",
+      "locationsText": "Bicester, United Kingdom",
+      "postedOn": "Posted 5 Days Ago",
+      "bulletFields": ["R-1002"]
+    }
+  ]
+}

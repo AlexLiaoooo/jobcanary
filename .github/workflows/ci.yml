@@ -1,0 +1,37 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    # Node 20 is the floor declared in package.json's engines field, so it is
+    # tested explicitly rather than assumed. Windows is here because the CLI
+    # has already been bitten once by a platform difference: process.exit()
+    # with sockets in flight fast-fails there.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20', '22', '24']
+
+    runs-on: ${{ matrix.os }}
+    name: node ${{ matrix.node }} on ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+
+      # The suite is hermetic — it stands up a local fixture server and never
+      # contacts a third-party host, so CI needs no secrets and no network
+      # beyond the install step.
+      - run: npm test

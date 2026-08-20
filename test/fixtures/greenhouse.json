@@ -1,0 +1,21 @@
+{
+  "jobs": [
+    {
+      "id": 4001,
+      "title": "Graduate Design Engineer",
+      "absolute_url": "https://boards.greenhouse.io/acmedynamics/jobs/4001",
+      "updated_at": "2026-08-17T09:12:00-04:00",
+      "location": { "name": "Oxford, UK" },
+      "content": "&lt;p&gt;Join our chassis team.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;CAD&lt;/li&gt;&lt;li&gt;FEA&lt;/li&gt;&lt;/ul&gt;"
+    },
+    {
+      "id": 4002,
+      "title": "Head of Aerodynamics",
+      "absolute_url": "https://boards.greenhouse.io/acmedynamics/jobs/4002",
+      "updated_at": "2026-08-16T11:00:00-04:00",
+      "location": { "name": "Remote" },
+      "content": "&lt;p&gt;Lead the aero group.&lt;/p&gt;"
+    }
+  ],
+  "meta": { "total": 2 }
+}

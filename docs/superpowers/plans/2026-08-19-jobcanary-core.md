@@ -16,7 +16,7 @@
 - Exactly one runtime dependency in Plan 1: `yaml`. Do not add others.
 - Never use `Date.now()` or `new Date()` inside pure functions — the caller passes `today` explicitly, so tests are deterministic.
 - All network access goes through `ctx.http`, never a bare global `fetch`. Tests inject a stub.
-- No absolute paths, no personal names, no real company data in source or fixtures. Fixtures use fictional companies.
+- No absolute paths, no personal names, no real company data in source or fixtures. Fixtures use fictional companies. This targets *private* data: local filesystem paths, the author's real name in comments, a real CV. The project's own public identity is exempt — the repo URL in the crawler's User-Agent is deliberate, because a bot that identifies itself and links to its source is how a site operator finds out who is hitting them.
 - Exit codes: `0` ok · `1` unexpected · `2` config invalid · `3` all sites failed · `4` scoring failed (digest still written). **Exit 4 is not implemented in Plan 1** — the `none` provider is pure and cannot fail. Plan 3 adds it with the `anthropic` provider.
 - Every posting id is `${site.id}:${nativeId}`.
 - Commit after every task.
@@ -138,6 +138,23 @@ test('parseConfig defaults site.enabled to true and honours false', () => {
   assert.equal(cfg.sites[0].enabled, true);
   assert.equal(cfg.sites[1].enabled, false);
 });
+
+test('compileMatcher honours the flags given and does not force case-insensitivity', () => {
+  const sensitive = compileMatcher('/PhD/');
+  assert.ok(sensitive.test('a PhD required'));
+  assert.ok(!sensitive.test('a phd required'));
+  assert.ok(compileMatcher('/PhD/i').test('a phd required'));
+});
+
+test('parseConfig rejects a non-array rules.exclude', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\nrules:\n  exclude: {id: senior, field: title, match: ["x"]}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('parseConfig rejects a non-array rules.annotate', () => {
+  const yaml = 'sites:\n  - {id: a, company: A, type: greenhouse, board: x}\nrules:\n  annotate: {id: rtw, field: title, match: ["x"], note: "n"}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
 ```
 
 - [ ] **Step 3: Run the test to verify it fails**
@@ -169,7 +186,11 @@ const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Compile one match specification into a RegExp.
- * '/body/flags' produces a real regex; anything else is a case-insensitive literal.
+ *
+ * A plain string is matched case-insensitively as a literal, which is what a
+ * rule author almost always wants. The '/body/flags' form is the escape hatch
+ * for precision and uses exactly the flags given — '/PhD/' is case-sensitive,
+ * '/PhD/i' is not.
  */
 export function compileMatcher(spec) {
   if (typeof spec !== 'string' || spec.length === 0) {
@@ -178,7 +199,7 @@ export function compileMatcher(spec) {
   const m = spec.match(/^\/(.*)\/([gimsuy]*)$/s);
   if (m) {
     try {
-      return new RegExp(m[1], m[2].includes('i') ? m[2] : m[2] + 'i');
+      return new RegExp(m[1], m[2]);
     } catch (err) {
       throw new ConfigError(`invalid regex ${spec}: ${err.message}`);
     }
@@ -256,6 +277,15 @@ export function parseConfig(text, baseDir) {
     throw new ConfigError('dedupe.retentionDays must be a positive integer');
   }
 
+  // Guard before mapping: a non-nullish non-array (`exclude: {…}`, i.e. a
+  // forgotten list dash) slips past `?? []` and would throw a raw TypeError,
+  // which escapes as exit 1 instead of the exit 2 the config contract promises.
+  const ruleList = (value, kind) => {
+    const list = value ?? [];
+    if (!Array.isArray(list)) throw new ConfigError(`rules.${kind} must be a list`);
+    return list;
+  };
+
   const seenIds = new Set();
   return {
     profile: raw.profile ? resolve(baseDir, raw.profile) : null,
@@ -263,8 +293,8 @@ export function parseConfig(text, baseDir) {
     output,
     dedupe: { retentionDays },
     rules: {
-      exclude: (raw.rules?.exclude ?? []).map((r, i) => compileRule(r, 'exclude', i)),
-      annotate: (raw.rules?.annotate ?? []).map((r, i) => compileRule(r, 'annotate', i)),
+      exclude: ruleList(raw.rules?.exclude, 'exclude').map((r, i) => compileRule(r, 'exclude', i)),
+      annotate: ruleList(raw.rules?.annotate, 'annotate').map((r, i) => compileRule(r, 'annotate', i)),
     },
     sites: raw.sites.map((s, i) => validateSite(s, i, seenIds)),
   };
@@ -284,7 +314,7 @@ export function loadConfig(filePath) {
 - [ ] **Step 5: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS — 9 config tests
+Expected: PASS — 13 config tests
 
 - [ ] **Step 6: Commit**
 
@@ -1039,7 +1069,7 @@ Create `test/fixtures/lever.json`:
     "id": "b1e7c2a4-0000-4000-8000-000000000001",
     "text": "Powertrain Systems Engineer",
     "hostedUrl": "https://jobs.lever.co/nordholt/b1e7c2a4",
-    "createdAt": 1755388800000,
+    "createdAt": 1786924800000,
     "categories": { "location": "Bicester, UK", "team": "Powertrain", "commitment": "Full-time" },
     "descriptionPlain": "Own the hybrid control strategy.\nRequires MATLAB."
   },
@@ -1047,7 +1077,7 @@ Create `test/fixtures/lever.json`:
     "id": "b1e7c2a4-0000-4000-8000-000000000002",
     "text": "Composites Technician",
     "hostedUrl": "https://jobs.lever.co/nordholt/b1e7c2a5",
-    "createdAt": 1755302400000,
+    "createdAt": 1786838400000,
     "categories": { "location": "Bicester, UK" },
     "descriptionPlain": "Layup and autoclave work."
   }
@@ -2535,7 +2565,97 @@ point.
 occupop, ashby, smartrecruiters, personio, sfrss, plus the browser tier and its
 per-site timeout isolation.
 
+**Carried from the Plan 1 review — convergent enrichment state:** postings
+excluded by a description-based rule are re-enriched on every run, because
+`seen.json` records only postings that reached a digest. Deliberately not fixed
+by persisting exclusions (rules are editable; a loosened rule must be able to
+surface an old posting). The fix is a separate excluded-id map invalidated by a
+hash of the compiled rules. Plan 1 only exposes the cost via
+`stats.enrichmentFetches` and `stats.excludedIds`.
+
 **Plan 3 — LLM scoring and publication:** `anthropic` provider (structured
 outputs, prompt caching, Batch API), `claude-cli` provider, the
 `uk-motorsport` preset, the GitHub Actions daily workflow, CI, and the public
 repo push.
+
+## Carried findings — pick these up in Plan 2
+
+Reviewed during Plan 1, judged non-blocking, and deliberately carried. Grouped
+by where they will bite.
+
+**Before writing the ten new adapters:**
+
+- `src/adapters/fetch-json.mjs` now owns non-2xx handling, unparseable bodies,
+  shape validation, and tolerant row mapping. Every new adapter must route
+  through it rather than re-implementing the try/catch — that is the whole
+  reason it was extracted before the fleet arrived.
+- Nothing rate-limits anything. Fetches are sequential, which is polite, but 88
+  sites plus per-posting enrichment sequentially will be slow enough that
+  someone will reach for `Promise.all`. Decide the concurrency and
+  inter-request delay policy deliberately, and put it in the spec — the README
+  already promises users a reasonable request rate.
+- `fetchDescription` is a de facto fourth member of the adapter interface and
+  is undocumented in the spec. Its contract — return `''` on any failure, never
+  throw — exists only as discipline inside `workday.mjs`, and the pipeline has
+  no try/catch around the call. An adapter author who throws from it crashes
+  the run. Document it, or guard it.
+- `ctx.browser` appears in the spec's `ctx` and does not exist in the code.
+  `--browser` currently only un-skips sites; there is no browser to hand them.
+
+**Before writing the LLM providers:**
+
+- Write down the provider contract first: return exactly one `Scored` per input
+  posting, and use `verdict: 'omit'` to suppress rather than dropping the
+  posting from the array. Nothing enforces this today, and a provider that
+  drops a posting makes it immortal — re-fetched, re-enriched, and re-offered
+  every run forever, with no error. Consider a length assertion in `run` after
+  the `score` call.
+- The spec's scoring-failure fallback cannot be built on `run`'s current shape.
+  It requires that a failing scoring call still writes an unscored digest
+  (exit 4), but a provider throw currently propagates out of `run` and the
+  fetch work is lost. `run` will need to catch, return the unscored postings
+  with a `scoringError` in `stats`, and let the CLI decide. That is a change to
+  `run`'s return contract — make it before ten adapters and two providers
+  depend on the current one.
+- `stats.kept` counts everything the provider returned; the Markdown writer
+  filters `verdict === 'omit'`. Identical today, divergent the moment a
+  provider omits anything, at which point the CLI's summary line will disagree
+  with the digest it just wrote.
+
+**Smaller, and safe to batch:**
+
+- `src/config.mjs` — a non-object scalar for `scoring`/`output`/`dedupe` (e.g.
+  `scoring: banana`) silently falls back to the full default block.
+- `src/posting.mjs` — `makePosting` uses `site?.id` in error paths but bare
+  `site.id`/`site.company` on the success path.
+- `src/dedupe.mjs` — `saveSeen` leaves a `.tmp` file if the process dies
+  between write and rename; nothing sweeps stale ones. A corrupt `seen.json`
+  exits 1 with a stack trace where exit 2 would read better.
+- `src/dedupe.mjs` — the retention cutoff is inclusive, so `retentionDays: 30`
+  is a 31-day window, and a posting open past the window re-surfaces as new.
+  Both defensible; both deserve a README line, because a user will ask.
+- `src/posting.mjs` / `src/output/markdown.mjs` — titles keep inner newlines
+  and are interpolated straight into a `###` heading, so third-party text can
+  restructure the digest. Low blast radius, but collapse whitespace in
+  `makePosting`.
+- `src/http.mjs` — `res.text()` is unbounded; a runaway response has no cap.
+  `ctx.timeoutMs` is informational and silently lies if a caller injects an
+  `http` with a different timeout.
+- `src/adapters/greenhouse.mjs` — `postedAt` comes from `updated_at`, so an
+  edited year-old posting looks fresh. Defensible; the field name does not say
+  so.
+- `bin/jobcanary.mjs` — `--out` silently relocates `seen.json` alongside the
+  digests, so an `--out` run re-reports everything as new and seeds a second,
+  divergent state file. `--preset x` without the `run` positional prints help
+  instead of the preset error.
+- `.gitignore` ignores `seen.json`, which Plan 3's Actions flow needs to commit
+  back to the user's fork. That will need an exception.
+- `node --test` walks the whole repo tree; `node --test test/` is equally
+  portable and tighter.
+- `test/cli.test.mjs` would flake if its two child runs straddle midnight UTC.
+- No test covers `browser: true` actually including a browser-tier site — only
+  the skip path. Plan 2 adds the tier, so close it there.
+- `src/adapters/workday.mjs` — the later-page-failure tolerance and the
+  `MAX_PAGES` cap have no test coverage.
+- `src/scoring/index.mjs` — `registerProvider` has no test and no caller until
+  a second provider exists.
