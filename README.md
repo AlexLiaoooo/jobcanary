@@ -21,7 +21,7 @@ A config-driven job monitor: it polls career sites and ATS job boards, filters a
 Requires Node.js 20 or later.
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/AlexLiaoooo/jobcanary.git
 cd jobcanary
 npm install
 ```
@@ -58,6 +58,41 @@ Add `--dry` to fetch and see the counts without writing anything:
 ```bash
 jobcanary run --config jobcanary.yaml --dry
 ```
+
+## What a digest looks like
+
+Sorted by score, ties broken alphabetically by company. Rules that *annotate*
+rather than exclude show up as a **Notes** line, so a posting is flagged for
+your judgement instead of being silently dropped. A site that failed is named
+in a footer rather than passed over in silence.
+
+```markdown
+# Job Picks — 2026-08-19
+**Scanned:** 214 · **New:** 3
+
+### [9/10] Graduate Powertrain Engineer · Nordholt Racing
+- **Location:** Bicester, UK · **Posted:** 2026-08-18
+- **Fit:** Matched configured keywords: graduate, powertrain, hybrid.
+- **Link:** https://jobs.lever.co/nordholt/b1e7c2a4
+
+### [5/10] Thermal Systems Engineer · Vantor Propulsion
+- **Location:** Bicester, UK · **Posted:** 2026-08-17
+- **Fit:** Matched configured keywords: thermal, gt-suite.
+- **Notes:** Mentions a sponsorship restriction — verify eligibility
+- **Link:** https://vantor.wd3.myworkdayjobs.com/.../Thermal-Systems-Engineer_R-1001
+
+### [3/10] Design Engineer · Acme Dynamics
+- **Location:** Oxford, UK · **Posted:** 2026-08-16
+- **Fit:** Matched configured keywords: cad.
+- **Link:** https://boards.greenhouse.io/acmedynamics/jobs/4001
+
+## Site errors
+
+- zenith-motors — HTTP 503
+```
+
+With `format: json` you get the same data as structured records instead,
+including the per-run `stats`, so you can pipe it somewhere else.
 
 ## Config reference
 
