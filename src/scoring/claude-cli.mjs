@@ -7,9 +7,17 @@ const execFileAsync = promisify(execFile);
 const BATCH = 10;
 const TIMEOUT_MS = 180_000;
 
+/**
+ * Which binary to invoke. Overridable via JOBCANARY_CLAUDE_BIN for anyone
+ * whose `claude` is not a bare name on PATH (a wrapper script, an unusual
+ * install location), and it doubles as a deterministic way to point this
+ * provider at a binary that is guaranteed not to exist.
+ */
+const CLAUDE_BIN = process.env.JOBCANARY_CLAUDE_BIN || 'claude';
+
 /** Default runner: pipe the prompt to `claude -p` and return its stdout. */
 async function runClaude(prompt) {
-  const { stdout } = await execFileAsync('claude', ['-p'], {
+  const { stdout } = await execFileAsync(CLAUDE_BIN, ['-p'], {
     input: prompt,
     encoding: 'utf8',
     timeout: TIMEOUT_MS,

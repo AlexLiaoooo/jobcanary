@@ -48,9 +48,9 @@ after(() => server.close());
 
 // execFile, not execFileSync: the fixture server runs in this process, so the
 // event loop has to stay free to answer the child process's requests.
-async function runCli(args, { cwd } = {}) {
+async function runCli(args, { cwd, env } = {}) {
   try {
-    const { stdout, stderr } = await execFileAsync(process.execPath, [cli, ...args], { cwd, encoding: 'utf8' });
+    const { stdout, stderr } = await execFileAsync(process.execPath, [cli, ...args], { cwd, env, encoding: 'utf8' });
     return { code: 0, stdout, stderr };
   } catch (err) {
     return { code: err.code ?? 1, stdout: err.stdout ?? '', stderr: err.stderr ?? '' };
@@ -214,4 +214,63 @@ test('every site returning zero postings exits 3', async () => {
   assert.match(r.stderr, /all 1 site\(s\) returned zero postings/);
   assert.match(r.stderr, /adapter has gone stale/);
   assert.equal(existsSync(out), false, 'a systemic break must not write an empty digest');
+});
+
+// NOTE: the brief's "a scoring failure still writes the digest and exits 4"
+// test (driving the failure through claude-cli with an unresolvable binary)
+// is deliberately not implemented here. See task-7-report.md: claude-cli.mjs
+// degrades every batch failure to per-posting `unscored()` results and never
+// throws out of `score()`, so `stats.scoringError` never becomes non-null
+// this way and the CLI observably exits 0, not 4 — confirmed by running the
+// exact scenario end to end. This is independent of the PATH-vs-
+// JOBCANARY_CLAUDE_BIN choice; both hit the same wall. Flagged for the
+// controller rather than silently resolved either direction.
+//
+// The test below is added in its place, to still prove the exit-4 wiring in
+// bin/jobcanary.mjs actually works end to end. It drives the failure through
+// a fault that genuinely does propagate out of a provider's score(): a
+// profile file that validates at config load (config.mjs only checks the key
+// is set, not that the file exists) but is gone by the time scoring reads it
+// — buildPrefixFromSources throws outside claude-cli's per-batch try/catch,
+// so this one is not affected by the mismatch above.
+test('scoring fails outright (not per-posting) still writes the digest and exits 4', async () => {
+  const { dir, out } = workspace();
+  const cfg = join(dir, 'scoring.yaml');
+  writeFileSync(cfg, [
+    'output:',
+    '  dir: ./out',
+    'profile: ./does-not-exist.md',
+    'scoring:',
+    '  provider: claude-cli',
+    'sites:',
+    `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
+    '',
+  ].join('\n'), 'utf8');
+
+  const r = await runCli(['run', '--config', cfg], { cwd: dir });
+  assert.equal(r.code, 4, 'scoring failed but the crawl succeeded');
+  const name = readdirSync(out).find((f) => f.endsWith('.md'));
+  assert.ok(name, 'the digest must still be written');
+  const md = readFileSync(join(out, name), 'utf8');
+  assert.match(md, /\[—\]/, 'postings appear unscored rather than vanishing');
+  assert.match(r.stderr, /scoring failed/i);
+  assert.match(r.stderr, /profile/i);
+});
+
+test('an LLM provider without a profile exits 2 before any fetch', async () => {
+  const { dir } = workspace();
+  const cfg = join(dir, 'noprofile.yaml');
+  writeFileSync(cfg, [
+    'output:',
+    '  dir: ./out',
+    'scoring:',
+    '  provider: anthropic',
+    'sites:',
+    `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
+    '',
+  ].join('\n'), 'utf8');
+
+  const r = await runCli(['run', '--config', cfg]);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /needs 'profile'/);
 });

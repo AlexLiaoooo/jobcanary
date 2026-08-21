@@ -96,10 +96,13 @@ async function main() {
 
   // enrichmentFetches is in the summary because it is the run's hidden cost:
   // a posting excluded on its description is re-fetched every run by design,
-  // and a number nobody can see is a number nobody can act on.
+  // and a number nobody can see is a number nobody can act on. scoring is in
+  // the summary too, so a failure that will end in exit 4 is visible on the
+  // same line as the rest of the run's outcome, not only in the exit code.
   console.log(
     `scanned=${stats.scanned} seen=${stats.alreadySeen} excluded=${stats.excluded} ` +
-    `kept=${stats.kept} enrichmentFetches=${stats.enrichmentFetches} siteErrors=${stats.siteErrors.length}`
+    `kept=${stats.kept} enrichmentFetches=${stats.enrichmentFetches} siteErrors=${stats.siteErrors.length} ` +
+    `scoring=${stats.scoringError ? 'failed' : 'ok'}`
   );
 
   if (values.dry) {
@@ -132,6 +135,14 @@ async function main() {
   let next = seen;
   for (const p of postings) next = recordSeen(next, p.id, date);
   saveSeen(seenPath, pruneSeen(next, date, config.dedupe.retentionDays));
+
+  // Scoring failed but the crawl did not: the digest is written unscored so
+  // the run's fetch work is not lost, and the exit code says what happened.
+  if (stats.scoringError) {
+    console.error(`scoring failed: ${stats.scoringError}`);
+    console.error('the digest was written with postings unscored');
+    return 4;
+  }
 
   return 0;
 }

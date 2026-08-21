@@ -18,7 +18,7 @@ A config-driven job monitor: it polls career sites and ATS job boards, filters a
 
 - **It does not apply to jobs.** jobcanary only reads and reports; it never submits an application, fills a form, or sends anything on your behalf.
 - **It has no LinkedIn adapter**, and none is planned — LinkedIn's terms prohibit this kind of automated access. See [Sources and terms](#sources-and-terms).
-- It does not (yet) call an LLM to score postings. See [Scoring providers](#scoring-providers).
+- **It does not call an LLM by default.** Scoring is a deterministic keyword match unless you opt into `scoring.provider: anthropic` or `claude-cli`. See [Scoring providers](#scoring-providers).
 
 ## Install
 
@@ -31,6 +31,8 @@ npm install
 ```
 
 This installs the single runtime dependency (`yaml`) and nothing else — job fetching uses the platform `fetch`, and argument parsing uses `node:util`'s `parseArgs`, so there is no CLI framework to pull in.
+
+The `anthropic` scoring provider needs one more package, `@anthropic-ai/sdk`, but it is declared as an optional peer dependency rather than a regular one — `npm install` above will not pull it in. Install it yourself only if you use that provider: `npm install @anthropic-ai/sdk`. The `claude-cli` provider needs no extra package; it shells out to a `claude` you already have.
 
 Run the CLI directly with Node:
 
@@ -112,7 +114,7 @@ including the per-run `stats`, so you can pipe it somewhere else.
 A config file is YAML. Every key below is optional except `sites`.
 
 ```yaml
-profile: ./profile.md        # optional; a free-text file describing you, passed to scoring providers that use it (default: none)
+profile: ./profile.md        # a free-text file describing you; required if scoring.provider is 'anthropic' or 'claude-cli', unused by 'none' (default: none)
 
 output:
   dir: ./digests              # where digests and seen.json are written (default: ./digests)
@@ -124,9 +126,11 @@ dedupe:
 scoring:
   provider: none               # none | anthropic | claude-cli (default: none)
   keywords: [graduate, cfd]     # used only by the 'none' provider (default: [])
-  model: claude-opus-5           # reserved for the 'anthropic'/'claude-cli' providers (default: claude-opus-5)
-  effort: high                    # reserved for the 'anthropic'/'claude-cli' providers (default: high)
-  batch: true                      # reserved for the 'anthropic' provider's Batch API (default: true)
+  model: claude-opus-5           # used by the 'anthropic' provider (default: claude-opus-5)
+  effort: high                    # used by the 'anthropic' provider (default: high)
+  concurrency: 5                   # 'anthropic' provider: requests kept in flight at once (default: 5)
+  rubric: ./rubric.md               # optional; overrides the built-in rubric for either LLM provider (default: built-in)
+  batch: false                       # must stay false — the Batch API is not implemented (default: false)
 
 rules:                        # optional; both lists default to empty (no filtering, nothing excluded)
   exclude:                     # postings matching any exclude rule are dropped entirely
@@ -148,7 +152,7 @@ sites:                         # required, at least one entry
     board: acmedynamics             # adapter-specific fields go here; see below
 ```
 
-`scoring.model`, `scoring.effort`, and `scoring.batch` are parsed and defaulted by the config loader today, but nothing reads them yet — the `none` provider ignores all three. They exist so that a config file written against the `anthropic`/`claude-cli` providers arriving in a later release will already validate; setting them now is harmless but has no effect on a run.
+`scoring.model` and `scoring.effort` are read by the `anthropic` provider only; the `none` provider ignores both, and `claude-cli` defers to whatever your `claude` install is already configured to use. `scoring.concurrency` likewise bounds `anthropic`'s parallel requests — `claude-cli` batches ten postings per invocation instead and does not use this key. `scoring.rubric` and `profile` (below) apply to both LLM providers equally. `scoring.batch` is parsed and defaulted to `false`, and stays that way: see [Scoring providers](#scoring-providers) for why.
 
 Each `match` entry is either a plain string (matched case-insensitively as a literal substring/word) or a `/pattern/flags` string, which compiles to a real `RegExp` with the flags given — so `/PhD/` is case-sensitive while `/PhD/i` is not.
 
@@ -186,7 +190,16 @@ Only these three adapters exist today. A larger adapter fleet (static career pag
 ## Scoring providers
 
 - **`none`** (the default) — a deterministic, offline keyword scorer. It counts matches against `scoring.keywords` and never omits a posting; it exists so the tool is fully useful and testable without any API key or network call beyond fetching the listings themselves.
-- **`anthropic`** and **`claude-cli`** — LLM-backed scoring against your `profile`, giving a rationale and a fit judgement per posting. These are planned for a later release and are not implemented yet; setting `scoring.provider` to either one today passes config validation, but `jobcanary run` then stops with a config error (exit 2) before it fetches a single site, so no crawling work is done and discarded.
+- **`anthropic`** — scores each posting in one cached request against the Anthropic API directly. Needs `ANTHROPIC_API_KEY` in the environment and the optional peer dependency installed (`npm install @anthropic-ai/sdk` — see [Install](#install)); missing either stops `jobcanary run` with a config error (exit 2) before it fetches a single site.
+- **`claude-cli`** — free if you already have Claude Code installed and are logged in: it batches ten postings per `claude -p` invocation and matches each result back to its posting by the id the model echoes, rather than by position. Needs `claude` on `PATH` — set `JOBCANARY_CLAUDE_BIN` if it lives somewhere `PATH` doesn't reach. A batch that fails to run or to parse degrades just its own postings to unscored rather than failing the run — including every batch, if `claude` turns out to be unreachable entirely. That keeps one flaky invocation from losing a whole run's results, but it also means a `claude` binary that is simply missing currently exits 0 with an all-unscored digest, not 4 — check the digest content, not only the exit code, if you suspect this provider isn't actually running.
+
+Both LLM providers need `profile` set in the config: a path to a Markdown (or plain text) file describing the candidate, read fresh on every run and sent once as part of the cached prompt prefix. Set `scoring.provider` to `anthropic` or `claude-cli` without a `profile` and the config fails validation before anything is fetched — see [`examples/profile.md`](examples/profile.md) for a starting point.
+
+`scoring.rubric` optionally points at a Markdown file that replaces the built-in scoring rubric — the default asks the model for a 1-10 fit score and a one-sentence rationale grounded in the profile, and never invites it to leave a posting out.
+
+`scoring.batch` defaults to `false` and must stay that way: the Batch API's 24-hour turnaround does not suit a tool meant to produce a same-day digest, so it is not implemented here. Setting `scoring.batch: true` is rejected at config load with a clear error, rather than accepted and silently ignored.
+
+Either LLM provider scores and ranks, but never omits. A posting it could not score — because a single request failed, the reply didn't parse, or the provider errored outright — still appears in the digest, marked `[—]` in place of a score and sorted after every scored posting rather than disappearing. If scoring fails outright, the crawl's results are not thrown away: the digest is written with every posting unscored, and `jobcanary run` exits 4 so the failure is visible without having to read the digest to notice it.
 
 ## Exit codes
 
@@ -196,7 +209,7 @@ Only these three adapters exist today. A larger adapter fleet (static career pag
 | 1    | Unexpected error |
 | 2    | Config invalid (missing file, bad YAML, unknown adapter type, failed validation) |
 | 3    | Every configured site failed to fetch, or every site returned zero postings (a systemic break: network down, or an adapter gone stale) |
-| 4    | Reserved for scoring failures — not used yet; the `none` provider is pure and cannot fail. Introduced when the LLM providers arrive. |
+| 4    | Scoring failed. The crawl still succeeded and the digest was still written, with the affected postings unscored — the `none` provider is pure and cannot trigger this. |
 
 ## Sources and terms
 
