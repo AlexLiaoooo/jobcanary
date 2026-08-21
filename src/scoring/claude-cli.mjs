@@ -1,21 +1,11 @@
 import { execFile } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { promisify } from 'node:util';
 import { ConfigError } from '../config.mjs';
-import { DEFAULT_RUBRIC, buildPostingBlock, buildPrefix, unscored } from './prompt.mjs';
+import { buildPostingBlock, buildPrefixFromSources, unscored } from './prompt.mjs';
 
 const execFileAsync = promisify(execFile);
 const BATCH = 10;
 const TIMEOUT_MS = 180_000;
-
-function readOr(path, fallback, label) {
-  if (!path) return fallback;
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (err) {
-    throw new ConfigError(`could not read ${label} at ${path}: ${err.message}`);
-  }
-}
 
 /** Default runner: pipe the prompt to `claude -p` and return its stdout. */
 async function runClaude(prompt) {
@@ -80,10 +70,7 @@ export default {
     if (postings.length === 0) return [];
 
     const exec = opts.exec ?? runClaude;
-    const prefix = buildPrefix({
-      rubric: readOr(opts.rubric, DEFAULT_RUBRIC, 'scoring.rubric'),
-      profile: readOr(opts.profile, '', 'profile'),
-    });
+    const prefix = buildPrefixFromSources({ rubric: opts.rubric, profile: opts.profile });
 
     const scored = new Map();
     for (let i = 0; i < postings.length; i += BATCH) {

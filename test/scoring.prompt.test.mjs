@@ -1,6 +1,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_RUBRIC, buildPrefix, buildPostingBlock, SCORE_SCHEMA, unscored } from '../src/scoring/prompt.mjs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  DEFAULT_RUBRIC,
+  buildPrefix,
+  buildPrefixFromSources,
+  buildPostingBlock,
+  SCORE_SCHEMA,
+  unscored,
+} from '../src/scoring/prompt.mjs';
+import { ConfigError } from '../src/config.mjs';
+
+function tempFile(name, contents) {
+  const dir = mkdtempSync(join(tmpdir(), 'jc-prompt-'));
+  const p = join(dir, name);
+  writeFileSync(p, contents, 'utf8');
+  return p;
+}
 
 const posting = (over = {}) => ({
   id: 'acme:1', title: 'Graduate Design Engineer', company: 'Acme Dynamics',
@@ -38,6 +56,50 @@ test('buildPrefix depends on nothing but its arguments', () => {
   const after = buildPrefix({ rubric: 'R', profile: 'P' });
   delete globalThis.__jobcanaryCanary;
   assert.equal(before, after);
+});
+
+test('buildPrefixFromSources falls back to DEFAULT_RUBRIC when both paths are null', () => {
+  const out = buildPrefixFromSources({ rubric: null, profile: null });
+  assert.match(out, new RegExp(DEFAULT_RUBRIC.slice(0, 40).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+});
+
+test('buildPrefixFromSources reads a real rubric file instead of the default', () => {
+  const rubricPath = tempFile('rubric.md', 'CUSTOM RUBRIC TEXT');
+  const out = buildPrefixFromSources({ rubric: rubricPath, profile: null });
+  assert.match(out, /CUSTOM RUBRIC TEXT/);
+  assert.doesNotMatch(out, /Give the posting a fit score/);
+});
+
+test('buildPrefixFromSources reads a real profile file', () => {
+  const profilePath = tempFile('profile.md', 'CUSTOM PROFILE TEXT');
+  const out = buildPrefixFromSources({ rubric: null, profile: profilePath });
+  assert.match(out, /CUSTOM PROFILE TEXT/);
+});
+
+test('an unreadable rubric path throws ConfigError naming scoring.rubric and the path', () => {
+  const badPath = join(tmpdir(), 'jc-prompt-missing', 'no-such-rubric.md');
+  assert.throws(
+    () => buildPrefixFromSources({ rubric: badPath, profile: null }),
+    (err) => {
+      assert.ok(err instanceof ConfigError);
+      assert.match(err.message, /could not read scoring\.rubric at/);
+      assert.match(err.message, new RegExp(badPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      return true;
+    }
+  );
+});
+
+test('an unreadable profile path throws ConfigError naming profile and the path', () => {
+  const badPath = join(tmpdir(), 'jc-prompt-missing', 'no-such-profile.md');
+  assert.throws(
+    () => buildPrefixFromSources({ rubric: null, profile: badPath }),
+    (err) => {
+      assert.ok(err instanceof ConfigError);
+      assert.match(err.message, /could not read profile at/);
+      assert.match(err.message, new RegExp(badPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      return true;
+    }
+  );
 });
 
 test('buildPostingBlock carries title, company, location and description', () => {

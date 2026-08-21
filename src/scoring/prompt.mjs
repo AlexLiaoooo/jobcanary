@@ -6,6 +6,9 @@
  * prefix, and a single varying byte silently disables prompt caching.
  */
 
+import { readFileSync } from 'node:fs';
+import { ConfigError } from '../config.mjs';
+
 export const DEFAULT_RUBRIC = `
 You are scoring a job posting for one candidate, whose profile follows.
 
@@ -40,6 +43,38 @@ reaches the reader.
  */
 export function buildPrefix({ rubric, profile }) {
   return `${rubric.trim()}\n\n## Candidate profile\n\n${profile.trim()}`;
+}
+
+/**
+ * Read a file's contents, or fall back when no path was given. Wraps a read
+ * failure in `ConfigError` with the offending path and a label naming what
+ * the file was for — both providers surface this verbatim, so the wording is
+ * a contract other things may assert on.
+ *
+ * Module-private: providers go through `buildPrefixFromSources` below.
+ */
+function readOr(path, fallback, label) {
+  if (!path) return fallback;
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (err) {
+    throw new ConfigError(`could not read ${label} at ${path}: ${err.message}`);
+  }
+}
+
+/**
+ * Build the cached prompt prefix directly from the config-supplied paths:
+ * reads the rubric (falling back to `DEFAULT_RUBRIC` when unset) and the
+ * profile (falling back to `''`), then calls `buildPrefix`. The one place
+ * both LLM providers turn `opts.rubric` / `opts.profile` into the prefix
+ * they send, so the read-and-fallback dance lives once instead of once per
+ * provider.
+ */
+export function buildPrefixFromSources({ rubric, profile }) {
+  return buildPrefix({
+    rubric: readOr(rubric, DEFAULT_RUBRIC, 'scoring.rubric'),
+    profile: readOr(profile, '', 'profile'),
+  });
 }
 
 /**

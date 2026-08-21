@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs';
 import { ConfigError } from '../config.mjs';
-import { DEFAULT_RUBRIC, SCORE_SCHEMA, buildPostingBlock, buildPrefix, unscored } from './prompt.mjs';
+import { SCORE_SCHEMA, buildPostingBlock, buildPrefixFromSources, unscored } from './prompt.mjs';
 
 const SDK = '@anthropic-ai/sdk';
 
@@ -18,15 +17,6 @@ async function createClient() {
     );
   }
   return new Anthropic();
-}
-
-function readOr(path, fallback, label) {
-  if (!path) return fallback;
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (err) {
-    throw new ConfigError(`could not read ${label} at ${path}: ${err.message}`);
-  }
 }
 
 /** Run `jobs` with at most `limit` in flight, preserving input order. */
@@ -63,10 +53,7 @@ export default {
     if (postings.length === 0) return [];
 
     const client = opts.client ?? (await createClient());
-    const prefix = buildPrefix({
-      rubric: readOr(opts.rubric, DEFAULT_RUBRIC, 'scoring.rubric'),
-      profile: readOr(opts.profile, '', 'profile'),
-    });
+    const prefix = buildPrefixFromSources({ rubric: opts.rubric, profile: opts.profile });
 
     const jobs = postings.map((posting) => async () => {
       try {
