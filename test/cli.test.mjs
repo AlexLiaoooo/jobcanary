@@ -216,24 +216,49 @@ test('every site returning zero postings exits 3', async () => {
   assert.equal(existsSync(out), false, 'a systemic break must not write an empty digest');
 });
 
-// NOTE: the brief's "a scoring failure still writes the digest and exits 4"
-// test (driving the failure through claude-cli with an unresolvable binary)
-// is deliberately not implemented here. See task-7-report.md: claude-cli.mjs
-// degrades every batch failure to per-posting `unscored()` results and never
-// throws out of `score()`, so `stats.scoringError` never becomes non-null
-// this way and the CLI observably exits 0, not 4 — confirmed by running the
-// exact scenario end to end. This is independent of the PATH-vs-
-// JOBCANARY_CLAUDE_BIN choice; both hit the same wall. Flagged for the
-// controller rather than silently resolved either direction.
-//
-// The test below is added in its place, to still prove the exit-4 wiring in
-// bin/jobcanary.mjs actually works end to end. It drives the failure through
-// a fault that genuinely does propagate out of a provider's score(): a
-// profile file that validates at config load (config.mjs only checks the key
-// is set, not that the file exists) but is gone by the time scoring reads it
-// — buildPrefixFromSources throws outside claude-cli's per-batch try/catch,
-// so this one is not affected by the mismatch above.
-test('scoring fails outright (not per-posting) still writes the digest and exits 4', async () => {
+// A provider that cannot possibly work: claude-cli with a profile, pointed at
+// a claude binary name that cannot exist via JOBCANARY_CLAUDE_BIN rather than
+// a stripped PATH (deterministic across platforms — see the README). Every
+// batch invocation fails, every posting degrades to unscored individually
+// (claude-cli.mjs's own, deliberate behaviour — see
+// scoring.claude-cli.test.mjs), and it is src/pipeline.mjs's total-failure
+// guard — added after this was first found to exit 0 silently — that turns
+// "nothing at all got scored" into stats.scoringError and this exit 4.
+test('a scoring failure still writes the digest and exits 4', async () => {
+  const { dir, out } = workspace();
+  const cfg = join(dir, 'scoring.yaml');
+  const profile = join(dir, 'profile.md');
+  writeFileSync(profile, 'Graduate engineer.', 'utf8');
+  writeFileSync(cfg, [
+    'output:',
+    '  dir: ./out',
+    'profile: ./profile.md',
+    'scoring:',
+    '  provider: claude-cli',
+    'sites:',
+    `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
+    '',
+  ].join('\n'), 'utf8');
+
+  const r = await runCli(['run', '--config', cfg], {
+    cwd: dir,
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: 'jobcanary-claude-does-not-exist' },
+  });
+  assert.equal(r.code, 4, 'scoring failed but the crawl succeeded');
+  const name = readdirSync(out).find((f) => f.endsWith('.md'));
+  assert.ok(name, 'the digest must still be written');
+  const md = readFileSync(join(out, name), 'utf8');
+  assert.match(md, /\[—\]/, 'postings appear unscored rather than vanishing');
+  assert.match(r.stderr, /scoring/i);
+});
+
+// Distinct from the test above: this drives the failure through
+// buildPrefixFromSources throwing directly out of score() (a profile that
+// validates at config load but is gone by the time scoring reads it), not
+// through the all-null-degrade guard. Kept because it exercises the older,
+// separate path where scoringError was already set inside the try/catch —
+// coverage the test above does not provide.
+test('scoring fails outright before any posting is attempted still writes the digest and exits 4', async () => {
   const { dir, out } = workspace();
   const cfg = join(dir, 'scoring.yaml');
   writeFileSync(cfg, [

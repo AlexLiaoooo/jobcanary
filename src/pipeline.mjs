@@ -154,6 +154,14 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
     postings = enriched.map((p) => unscored(p, err.message));
   }
 
+  // Per-posting degradation is deliberate, but if NOTHING scored, the cause is
+  // systemic (a missing binary, a revoked key, no network) and a silent exit 0
+  // with a digest full of [—] would hide it. Set the flag without re-mapping
+  // the postings, so each one keeps the specific reason it already carries.
+  if (scoringError === null && enriched.length > 0 && postings.every((p) => p.score === null)) {
+    scoringError = `no posting could be scored — first reason: ${postings[0].rationale}`;
+  }
+
   return {
     postings,
     stats: {

@@ -294,6 +294,53 @@ test('a provider that drops a posting is caught, not trusted', async () => {
   assert.equal(postings.length, 2, 'both postings survive as unscored rather than one vanishing');
 });
 
+test('every posting scoring null is a total failure, and each keeps its own reason', async () => {
+  // Per-posting degradation is deliberate and tolerated (see the mixed-result
+  // test below), but a provider that comes back with *nothing* scored is a
+  // systemic break (missing binary, revoked key, no network) masquerading as
+  // a clean run. That must be loud, the same way "every site returned zero
+  // postings" is loud rather than a silent empty digest.
+  fakeAdapter('fake-two', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }]);
+  fakeProvider('fake-all-null', async (ps) => ps.map((p, i) => ({
+    ...p, score: null, rationale: `reason ${i}`, verdict: 'keep',
+  })));
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-two', enabled: true }] });
+  cfg.scoring.provider = 'fake-all-null';
+
+  const { postings, stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.match(stats.scoringError, /no posting could be scored/);
+  assert.match(stats.scoringError, /reason 0/, 'the flag names the first reason, for a clue in the summary line');
+  // The postings themselves are not touched: each keeps the specific reason
+  // the provider gave it, rather than every one being overwritten with the
+  // same generic message.
+  assert.deepEqual(postings.map((p) => p.rationale), ['reason 0', 'reason 1']);
+});
+
+test('a mix of one scored and one unscored posting is tolerated, not a total failure', async () => {
+  fakeAdapter('fake-two', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }]);
+  fakeProvider('fake-mixed', async (ps) => [
+    { ...ps[0], score: 5, rationale: 'scored fine', verdict: 'keep' },
+    { ...ps[1], score: null, rationale: 'not scored: one bad batch', verdict: 'keep' },
+  ]);
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-two', enabled: true }] });
+  cfg.scoring.provider = 'fake-mixed';
+
+  const { stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(stats.scoringError, null, 'partial failure must stay tolerated');
+});
+
+test('an empty posting list does not set scoringError', async () => {
+  // `[].every(...)` is vacuously true, so without the enriched.length guard
+  // this would misfire: a run with nothing left to score (everything already
+  // seen) is not a scoring failure.
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const { postings, stats } = await run(baseConfig(), {
+    seen: { 's1:1': '2026-08-18' }, logger: quietLogger,
+  });
+  assert.equal(postings.length, 0);
+  assert.equal(stats.scoringError, null);
+});
+
 test('a provider precondition is checked before any site is fetched', async () => {
   let fetched = false;
   const adapter = fakeAdapter('fake-counted', [{ n: 1, title: 'A' }]);
