@@ -605,10 +605,7 @@ test('the none provider does not require a profile', () => {
 });
 
 test('scoring.batch true is rejected while the Batch API is unbuilt', () => {
-  const yaml = 'scoring: {batch: true}
-sites:
-  - {id: a, company: A, type: greenhouse, board: x}
-';
+  const yaml = 'scoring: {batch: true}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
   assert.throws(() => parseConfig(yaml, '/base'), /not implemented yet/);
 });
 
