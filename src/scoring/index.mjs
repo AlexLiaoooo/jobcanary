@@ -1,6 +1,10 @@
 import none from './none.mjs';
+import anthropic from './anthropic.mjs';
 
-const PROVIDERS = new Map([[none.id, none]]);
+const PROVIDERS = new Map([
+  [none.id, none],
+  [anthropic.id, anthropic],
+]);
 
 export function getProvider(id) {
   const provider = PROVIDERS.get(id);
