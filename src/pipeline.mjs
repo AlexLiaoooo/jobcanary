@@ -26,11 +26,12 @@ import { unscored } from './scoring/prompt.mjs';
 export async function run(config, { seen = {}, browser = false, http, logger = console } = {}) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
 
-  // Resolve the scoring provider before any network work. A provider the
-  // config blesses but the registry does not know about (today: anthropic and
-  // claude-cli) must fail on the first second of the run, not after every site
-  // has been crawled and every enrichment request paid for. This mirrors
-  // getAdapter below, which already fails fast in the `active` filter.
+  // Resolve the scoring provider before any network work. config.mjs's
+  // PROVIDERS list and this registry are maintained separately, so a provider
+  // id that passes config validation but was never registered here must fail
+  // in the first second of the run, not after every site has been crawled and
+  // every enrichment request paid for. This mirrors getAdapter below, which
+  // already fails fast in the `active` filter.
   const provider = getProvider(config.scoring.provider);
 
   // A provider's precondition (an API key, a binary on PATH) is checked here,
