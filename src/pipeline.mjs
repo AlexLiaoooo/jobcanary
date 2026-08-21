@@ -3,6 +3,8 @@ import { getProvider } from './scoring/index.mjs';
 import { applyRules } from './rules.mjs';
 import { isSeen } from './dedupe.mjs';
 import { createHttp } from './http.mjs';
+import { assertScoreContract } from './scoring/contract.mjs';
+import { unscored } from './scoring/prompt.mjs';
 
 /**
  * Run the pipeline over a config.
@@ -19,7 +21,7 @@ import { createHttp } from './http.mjs';
  * @param {{seen?: object, browser?: boolean, http?: Function, logger?: object}} [opts]
  * @returns {Promise<{postings: object[], stats: {scanned: number, excluded: number,
  *   excludedIds: string[], alreadySeen: number, kept: number, enrichmentFetches: number,
- *   siteErrors: {site: string, error: string}[]}}>}
+ *   siteErrors: {site: string, error: string}[], scoringError: string|null}}>}
  */
 export async function run(config, { seen = {}, browser = false, http, logger = console } = {}) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
@@ -30,6 +32,11 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   // has been crawled and every enrichment request paid for. This mirrors
   // getAdapter below, which already fails fast in the `active` filter.
   const provider = getProvider(config.scoring.provider);
+
+  // A provider's precondition (an API key, a binary on PATH) is checked here,
+  // before a single site is fetched — discovering a missing key after paying
+  // for a full crawl is the failure this ordering exists to prevent.
+  provider.checkPrecondition?.(config.scoring);
 
   const active = config.sites.filter((site) => {
     if (site.enabled === false) return false;
@@ -134,7 +141,17 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   }
 
   // --- score ---
-  const postings = await provider.score(enriched, { ...config.scoring, profile: config.profile });
+  // A scoring failure must not discard the crawl. Fall back to unscored
+  // postings and report the reason; the CLI still writes a digest and exits 4.
+  let postings;
+  let scoringError = null;
+  try {
+    postings = await provider.score(enriched, { ...config.scoring, profile: config.profile });
+    assertScoreContract(enriched, postings);
+  } catch (err) {
+    scoringError = err.message;
+    postings = enriched.map((p) => unscored(p, err.message));
+  }
 
   return {
     postings,
@@ -146,6 +163,7 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
       kept: postings.length,
       enrichmentFetches,
       siteErrors,
+      scoringError,
     },
   };
 }

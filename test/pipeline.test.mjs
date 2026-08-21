@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { run } from '../src/pipeline.mjs';
 import { registerAdapter } from '../src/adapters/index.mjs';
 import { compileMatcher } from '../src/config.mjs';
+import { registerProvider } from '../src/scoring/index.mjs';
 
 const quietLogger = { log() {}, warn() {}, error() {} };
 
@@ -251,4 +252,58 @@ test('run works with no options object at all', async () => {
   const { postings, stats } = await run(cfg);
   assert.deepEqual(postings, []);
   assert.equal(stats.scanned, 0);
+});
+
+function fakeProvider(id, impl, { checkPrecondition } = {}) {
+  const provider = { id, score: impl };
+  if (checkPrecondition) provider.checkPrecondition = checkPrecondition;
+  registerProvider(provider);
+  return provider;
+}
+
+test('a scoring failure keeps the crawl and reports scoringError', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  fakeProvider('fake-boom', async () => { throw new Error('API exploded'); });
+  const cfg = baseConfig();
+  cfg.scoring.provider = 'fake-boom';
+
+  const { postings, stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.match(stats.scoringError, /API exploded/);
+  // The crawl is not thrown away — the posting is still here, just unscored.
+  assert.equal(postings.length, 1);
+  assert.equal(postings[0].score, null);
+  assert.match(postings[0].rationale, /not scored/);
+  assert.equal(postings[0].verdict, 'keep');
+});
+
+test('scoringError is null on a clean run', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const { stats } = await run(baseConfig(), { seen: {}, logger: quietLogger });
+  assert.equal(stats.scoringError, null);
+});
+
+test('a provider that drops a posting is caught, not trusted', async () => {
+  fakeAdapter('fake-two', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }]);
+  fakeProvider('fake-dropper', async (ps) => ps.slice(1).map((p) => ({ ...p, score: 5, rationale: 'r', verdict: 'keep' })));
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-two', enabled: true }] });
+  cfg.scoring.provider = 'fake-dropper';
+
+  const { postings, stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.match(stats.scoringError, /dropped posting id/);
+  assert.equal(postings.length, 2, 'both postings survive as unscored rather than one vanishing');
+});
+
+test('a provider precondition is checked before any site is fetched', async () => {
+  let fetched = false;
+  const adapter = fakeAdapter('fake-counted', [{ n: 1, title: 'A' }]);
+  const realFetch = adapter.fetch.bind(adapter);
+  adapter.fetch = async (...args) => { fetched = true; return realFetch(...args); };
+  fakeProvider('fake-needs-key', async (ps) => ps, {
+    checkPrecondition() { throw new Error('SCORING_PRECONDITION: no key'); },
+  });
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-counted', enabled: true }] });
+  cfg.scoring.provider = 'fake-needs-key';
+
+  await assert.rejects(() => run(cfg, { seen: {}, logger: quietLogger }), /no key/);
+  assert.equal(fetched, false, 'the precondition must fail before the crawl is paid for');
 });
