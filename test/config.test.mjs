@@ -119,3 +119,45 @@ test('parseConfig still accepts an omitted or null profile and output.dir', () =
   assert.equal(cfg.profile, null);
   assert.match(cfg.output.dir, /digests$/);
 });
+
+test('scoring.rubric resolves against the config directory', () => {
+  const cfg = parseConfig('scoring: {rubric: ./r.md}\nprofile: ./p.md\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', '/base');
+  assert.match(cfg.scoring.rubric, /r\.md$/);
+});
+
+test('scoring.rubric defaults to null', () => {
+  const cfg = parseConfig('sites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', '/base');
+  assert.equal(cfg.scoring.rubric, null);
+});
+
+test('a non-string scoring.rubric is a ConfigError', () => {
+  const yaml = 'scoring: {rubric: 7}\nprofile: ./p.md\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), ConfigError);
+});
+
+test('an LLM provider without a profile is a ConfigError', () => {
+  const yaml = 'scoring: {provider: anthropic}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), /needs 'profile'/);
+});
+
+test('claude-cli also requires a profile', () => {
+  const yaml = 'scoring: {provider: claude-cli}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), /needs 'profile'/);
+});
+
+test('the none provider does not require a profile', () => {
+  const yaml = 'scoring: {provider: none}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.doesNotThrow(() => parseConfig(yaml, '/base'));
+});
+
+test('scoring.batch true is rejected while the Batch API is unbuilt', () => {
+  const yaml = 'scoring: {batch: true}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), /not implemented yet/);
+});
+
+test('scoring.concurrency defaults to 5 and must be a positive integer', () => {
+  const cfg = parseConfig('sites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', '/base');
+  assert.equal(cfg.scoring.concurrency, 5);
+  const bad = 'scoring: {concurrency: 0}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(bad, '/base'), ConfigError);
+});

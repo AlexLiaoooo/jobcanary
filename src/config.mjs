@@ -91,13 +91,31 @@ export function parseConfig(text, baseDir) {
     provider: raw.scoring?.provider ?? 'none',
     model: raw.scoring?.model ?? 'claude-opus-5',
     effort: raw.scoring?.effort ?? 'high',
-    batch: raw.scoring?.batch ?? true,
+    batch: raw.scoring?.batch ?? false,
+    concurrency: raw.scoring?.concurrency ?? 5,
     keywords: raw.scoring?.keywords ?? [],
+    rubric: null,
   };
   if (!PROVIDERS.includes(scoring.provider)) {
     throw new ConfigError(`scoring.provider must be one of ${PROVIDERS.join(', ')}, got '${scoring.provider}'`);
   }
   if (!Array.isArray(scoring.keywords)) throw new ConfigError('scoring.keywords must be a list');
+  if (!Number.isInteger(scoring.concurrency) || scoring.concurrency < 1) {
+    throw new ConfigError('scoring.concurrency must be a positive integer');
+  }
+  // The Batch API is specified but not built in this plan. Accepting the key
+  // silently would leave a config option that does nothing — say so instead.
+  if (scoring.batch === true) {
+    throw new ConfigError(
+      'scoring.batch is not implemented yet — the Batch API is planned but unbuilt, so leave it false'
+    );
+  }
+  if (raw.scoring?.rubric !== undefined && raw.scoring?.rubric !== null) {
+    if (typeof raw.scoring.rubric !== 'string') {
+      throw new ConfigError('scoring.rubric must be a path string');
+    }
+    scoring.rubric = resolve(baseDir, raw.scoring.rubric);
+  }
 
   // resolve() throws a raw TypeError on a non-string, which the CLI reports as
   // exit 1 (unexpected) instead of the exit 2 the config contract promises.
@@ -134,9 +152,16 @@ export function parseConfig(text, baseDir) {
   if (raw.profile !== undefined && raw.profile !== null && typeof raw.profile !== 'string') {
     throw new ConfigError(`profile must be a string path, got ${typeof raw.profile}`);
   }
+  const profile = raw.profile ? resolve(baseDir, raw.profile) : null;
+
+  // An LLM provider scores against the profile, so a missing one is a config
+  // error rather than a surprise at scoring time — after the crawl is paid for.
+  if (scoring.provider !== 'none' && !profile) {
+    throw new ConfigError(`scoring.provider '${scoring.provider}' needs 'profile' to be set`);
+  }
 
   return {
-    profile: raw.profile ? resolve(baseDir, raw.profile) : null,
+    profile,
     scoring,
     output,
     dedupe: { retentionDays },
