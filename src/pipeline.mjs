@@ -171,7 +171,15 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   // with a digest full of [—] would hide it. Set the flag without re-mapping
   // the postings, so each one keeps the specific reason it already carries.
   if (scoringError === null && enriched.length > 0 && postings.every((p) => p.score === null)) {
-    scoringError = `no posting could be scored — first reason: ${postings[0].rationale}`;
+    // Not postings[0]: the contract guarantees one result per posting, never
+    // that they come back in input order, and a provider is free to return
+    // them in whatever order it finished. Take the first one that actually
+    // carries a reason. The "not scored: " prefix is stripped because this
+    // message adds its own — the two together read "no posting could be
+    // scored — first reason: not scored: <reason>".
+    const reason = postings.find((p) => typeof p.rationale === 'string' && p.rationale.trim() !== '');
+    const detail = reason ? reason.rationale.replace(/^not scored:\s*/, '') : 'no reason given';
+    scoringError = `no posting could be scored — first reason: ${detail}`;
   }
 
   return {

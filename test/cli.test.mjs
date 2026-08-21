@@ -346,6 +346,20 @@ test('a fully scored run records every posting and reports unscored=0', async ()
   assert.match(r.stdout, /^scoringRequests=1 cache=unreported$/m);
 });
 
+test('--dry exits 4 when scoring failed, rather than reporting success', async () => {
+  // --dry changes what is written, not what happened. Exit 0 here would tell
+  // a script the run was fine.
+  const { dir, cfg, out, bin } = scoringWorkspace("process.stdout.write('not json at all');");
+  const r = await runCli(['run', '--config', cfg, '--dry'], {
+    cwd: dir,
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: bin },
+  });
+  assert.equal(r.code, 4);
+  assert.match(r.stdout, /--dry: nothing written/);
+  assert.match(r.stderr, /scoring failed/);
+  assert.equal(existsSync(out), false, 'a dry run still writes nothing');
+});
+
 test('a run that scores nothing prints no cost line at all', async () => {
   // The `none` provider issues no requests; a line of zeroes would be noise.
   const { cfg } = workspace();

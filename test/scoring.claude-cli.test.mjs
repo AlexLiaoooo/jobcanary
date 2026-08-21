@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import claudeCli from '../src/scoring/claude-cli.mjs';
 import { getProvider } from '../src/scoring/index.mjs';
+import { DEFAULT_RUBRIC } from '../src/scoring/prompt.mjs';
 
 const PROFILE_TEXT = 'Graduate mechanical engineer. SENTINEL-PROFILE-MARKER.';
 
@@ -175,8 +176,26 @@ test('a thrown invocation degrades that batch only', async () => {
 test('the prompt carries the rubric, the profile and each posting id', async () => {
   const exec = fakeExec(() => scoresFor(['a:1']));
   await scoreOnly([posting('a:1')], opts(exec));
+  // The rubric half of this test's name used to be unasserted: a prompt with
+  // no scoring instructions at all would have passed it.
+  assert.match(exec.calls[0], /Give the posting a fit score from 1 to 10/);
+  assert.match(exec.calls[0], /Score every posting you are given/);
+  assert.ok(
+    exec.calls[0].includes(DEFAULT_RUBRIC),
+    'the built-in rubric should reach the model verbatim when none is configured'
+  );
   assert.match(exec.calls[0], /Graduate mechanical engineer/);
   assert.match(exec.calls[0], /a:1/);
+});
+
+test('a configured rubric replaces the built-in one in the prompt', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jc-rub-'));
+  const rubric = join(dir, 'rubric.md');
+  writeFileSync(rubric, 'ONLY SCORE ODD NUMBERS', 'utf8');
+  const exec = fakeExec(() => scoresFor(['a:1']));
+  await scoreOnly([posting('a:1')], opts(exec, { rubric }));
+  assert.match(exec.calls[0], /ONLY SCORE ODD NUMBERS/);
+  assert.doesNotMatch(exec.calls[0], /Give the posting a fit score/);
 });
 
 test('output wrapped in a fenced code block is still parsed', async () => {

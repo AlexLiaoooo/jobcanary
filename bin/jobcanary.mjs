@@ -128,6 +128,13 @@ async function main() {
 
   if (values.dry) {
     console.log('--dry: nothing written');
+    // A dry run that could not score still failed at scoring, and reporting
+    // exit 0 would tell a script the opposite. --dry changes what is written,
+    // not what happened.
+    if (stats.scoringError) {
+      console.error(`scoring failed: ${stats.scoringError}`);
+      return 4;
+    }
     return 0;
   }
 

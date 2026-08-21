@@ -4,6 +4,7 @@ import { run } from '../src/pipeline.mjs';
 import { registerAdapter } from '../src/adapters/index.mjs';
 import { compileMatcher } from '../src/config.mjs';
 import { registerProvider } from '../src/scoring/index.mjs';
+import { unscored } from '../src/scoring/prompt.mjs';
 
 const quietLogger = { log() {}, warn() {}, error() {} };
 
@@ -394,6 +395,31 @@ test('stats.unscored is 0 when everything scored', async () => {
   fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
   const { stats } = await run(baseConfig(), { seen: {}, logger: quietLogger });
   assert.equal(stats.unscored, 0);
+});
+
+test('the total-failure message does not double the "not scored" prefix', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  fakeProvider('fake-prefixed', async (ps) => ps.map((p) => unscored(p, 'the binary is missing')));
+  const cfg = baseConfig();
+  cfg.scoring.provider = 'fake-prefixed';
+
+  const { stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(stats.scoringError, 'no posting could be scored — first reason: the binary is missing');
+});
+
+test('the first reason is found rather than assumed to be at index 0', async () => {
+  // The contract promises one result per posting; it does not promise input
+  // order, and it does not promise a rationale on every one.
+  fakeAdapter('fake-two', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }]);
+  fakeProvider('fake-no-rationale-first', async (ps) => [
+    { ...ps[0], score: null, rationale: '', verdict: 'keep' },
+    { ...ps[1], score: null, rationale: 'not scored: the model refused', verdict: 'keep' },
+  ]);
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-two', enabled: true }] });
+  cfg.scoring.provider = 'fake-no-rationale-first';
+
+  const { stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(stats.scoringError, 'no posting could be scored — first reason: the model refused');
 });
 
 test('a mix of one scored and one unscored posting is tolerated, not a total failure', async () => {
