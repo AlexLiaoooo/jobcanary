@@ -28,12 +28,52 @@ test('postings sort by score descending', () => {
   assert.ok(md.indexOf('[9/10]') < md.indexOf('[4/10]'));
 });
 
-test('ties sort alphabetically by company', () => {
+test('ties sort newest first', () => {
+  const md = renderDigest([
+    scored({ id: 'a:1', company: 'Acme Dynamics', postedAt: '2026-08-10' }),
+    scored({ id: 'a:2', company: 'Zenith Motors', postedAt: '2026-08-18' }),
+  ], meta);
+  assert.ok(
+    md.indexOf('Zenith Motors') < md.indexOf('Acme Dynamics'),
+    'the fresher posting of two equally-scored ones is the one worth acting on'
+  );
+});
+
+test('a tie on score and date falls back to company', () => {
   const md = renderDigest(
     [scored({ id: 'a:1', company: 'Zenith Motors' }), scored({ id: 'a:2', company: 'Acme Dynamics' })],
     meta
   );
   assert.ok(md.indexOf('Acme Dynamics') < md.indexOf('Zenith Motors'));
+});
+
+test('a posting with no date sorts after an equally-scored one that has a date', () => {
+  const md = renderDigest([
+    scored({ id: 'a:1', company: 'Acme Dynamics', postedAt: null }),
+    scored({ id: 'a:2', company: 'Zenith Motors', postedAt: '2026-08-01' }),
+  ], meta);
+  assert.ok(md.indexOf('Zenith Motors') < md.indexOf('Acme Dynamics'));
+});
+
+test('two undated postings still tie-break by company', () => {
+  const md = renderDigest([
+    scored({ id: 'a:1', company: 'Zenith Motors', postedAt: null }),
+    scored({ id: 'a:2', company: 'Acme Dynamics', postedAt: null }),
+  ], meta);
+  assert.ok(md.indexOf('Acme Dynamics') < md.indexOf('Zenith Motors'));
+});
+
+test('the comparator and the heading agree about what counts as unscored', () => {
+  // They disagreed: `?? -1` in the comparator tolerated undefined, `=== null`
+  // in the heading did not, so an undefined score sorted last and then
+  // rendered as [undefined/10].
+  const md = renderDigest([
+    scored({ id: 'a:1', score: undefined, company: 'Acme Dynamics' }),
+    scored({ id: 'a:2', score: 2, company: 'Zenith Motors' }),
+  ], meta);
+  assert.doesNotMatch(md, /undefined/);
+  assert.match(md, /### \[—\] Graduate Design Engineer · Acme Dynamics/);
+  assert.ok(md.indexOf('[2/10]') < md.indexOf('[—]'));
 });
 
 test('notes render as their own bullet when present', () => {

@@ -35,6 +35,36 @@ test('the default rubric never invites the model to omit a posting', () => {
   assert.doesNotMatch(DEFAULT_RUBRIC, /\bomit\b|\bdrop\b|\bexclude\b|\bdiscard\b/i);
 });
 
+test('the default rubric keeps the top band rare and tied to the profile specifics', () => {
+  // The failure this guards against is a digest of 8s and 9s. Every posting
+  // reaching the model has already survived the site list and the exclude
+  // rules, so "clearly the right field and level" is satisfied every time,
+  // and a rubric that pays 9-10 for it produces no ranking at all.
+  assert.match(DEFAULT_RUBRIC, /\bRare\b/);
+  assert.match(DEFAULT_RUBRIC, /specific tools, methods or sectors the\s+profile names/);
+  assert.match(DEFAULT_RUBRIC, /right field at the right level is not enough for a 9/);
+});
+
+test('the default rubric says an already-filtered list should land mid-scale', () => {
+  assert.match(DEFAULT_RUBRIC, /already narrowed/);
+  assert.match(DEFAULT_RUBRIC, /most postings to land in the middle of the scale/);
+});
+
+test('the default rubric asks for the full range rather than the band edges', () => {
+  // The schema allows any integer 1-10 while the prose describes five bands;
+  // told nothing else, a model resolves that by sitting on the band edges.
+  assert.match(DEFAULT_RUBRIC, /Use the whole range/);
+  assert.match(DEFAULT_RUBRIC, /landmarks, not five buckets/);
+  assert.match(DEFAULT_RUBRIC, /separate them by a point/);
+});
+
+test('the default rubric keeps every property the rest of the design depends on', () => {
+  assert.match(DEFAULT_RUBRIC, /A flag is a\s+prompt to look, not a verdict/);
+  assert.match(DEFAULT_RUBRIC, /Do not invent\s+requirements the posting does not state/);
+  assert.match(DEFAULT_RUBRIC, /If the posting text is thin/);
+  assert.match(DEFAULT_RUBRIC, /Score every posting you are given/);
+});
+
 test('buildPrefix contains both the rubric and the profile', () => {
   const out = buildPrefix({ rubric: 'RUBRIC TEXT', profile: 'PROFILE TEXT' });
   assert.match(out, /RUBRIC TEXT/);

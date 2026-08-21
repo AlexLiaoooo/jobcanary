@@ -76,10 +76,11 @@ idea of `annotate` rules.
 
 ## What a digest looks like
 
-Sorted by score, ties broken alphabetically by company. Rules that *annotate*
-rather than exclude show up as a **Notes** line, so a posting is flagged for
-your judgement instead of being silently dropped. A site that failed is named
-in a footer rather than passed over in silence.
+Sorted by score, then newest first, then by company for postings whose board
+stated no date. Rules that *annotate* rather than exclude show up as a
+**Notes** line, so a posting is flagged for your judgement instead of being
+silently dropped. A site that failed is named in a footer rather than passed
+over in silence.
 
 ```markdown
 # Job Picks — 2026-08-19
@@ -208,6 +209,8 @@ The point is money and time: paying for a full crawl and a detail request per po
 Both LLM providers need `profile` set in the config: a path to a Markdown (or plain text) file describing the candidate, read fresh on every run and sent once as part of the cached prompt prefix. Set `scoring.provider` to `anthropic` or `claude-cli` without a `profile` and the config fails validation before anything is fetched — see [`examples/profile.md`](examples/profile.md) for a starting point.
 
 `scoring.rubric` optionally points at a Markdown file that replaces the built-in scoring rubric — the default asks the model for a 1-10 fit score and a one-sentence rationale grounded in the profile, and never invites it to leave a posting out.
+
+The built-in rubric is written for a list that has **already** been narrowed twice, by the sites you chose to watch and by the exclude rules you wrote. Broad relevance is therefore the baseline rather than evidence of a good match: the rubric reserves 9-10 for a posting that names the specific tools and sectors your profile names, tells the model to expect most postings to land mid-scale, and asks it to separate two postings in the same band rather than sit on the band edges. Without that, a graduate profile against a list of surviving graduate postings scores 8 or 9 every time, and a digest with no spread is a digest with no ranking. If you write your own rubric, keep that property — it is the difference between a shortlist and a list.
 
 `scoring.batch` defaults to `false` and must stay that way: the Batch API's 24-hour turnaround does not suit a tool meant to produce a same-day digest, so it is not implemented here. Setting `scoring.batch: true` is rejected at config load with a clear error, rather than accepted and silently ignored.
 

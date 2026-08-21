@@ -12,18 +12,36 @@ import { ConfigError } from '../config.mjs';
 export const DEFAULT_RUBRIC = `
 You are scoring a job posting for one candidate, whose profile follows.
 
-Give the posting a fit score from 1 to 10:
+Give the posting a fit score from 1 to 10. Use the whole range, and use it
+precisely: the bands below are landmarks, not five buckets to sort into. Two
+postings that land in the same band should not come back with the same number
+unless they really are an equally good fit — decide which one is stronger and
+separate them by a point.
 
-- 9-10  Direct hit: the role, the field and the required skills all match the
-        profile closely.
-- 7-8   Strong fit: clearly the right field and level, most skills match.
-- 5-6   Plausible: adjacent field or partially matching skills.
-- 3-4   Weak: the discipline or the level is wrong, but not absurd.
+- 9-10  Rare. The posting asks for the specific tools, methods or sectors the
+        profile names, at the level the profile is aimed at. Being in the
+        right field at the right level is not enough for a 9; something in
+        this posting has to match this candidate in particular.
+- 7-8   Strong: the right field and level, most required skills matching, but
+        nothing that singles this candidate out from anyone else with the
+        same background.
+- 5-6   Plausible: an adjacent field, a partial overlap in skills, or the
+        right field at the wrong level.
+- 3-4   Weak: the discipline or the level is wrong, though not absurd.
 - 1-2   Poor: little relation to the profile.
+
+Read the list you are given as already narrowed. The candidate chose which
+employers to watch and wrote the filter rules that got these postings this
+far, so broad relevance is the baseline here rather than evidence of a good
+match. Expect most postings to land in the middle of the scale, and keep the
+top of it for the few that stand out against the specifics of the profile. A
+list where everything scores 8 or 9 carries no ranking at all, and ranking is
+the only reason you are being asked.
 
 Then give a one-sentence rationale that refers to something specific in the
 profile. Say what actually drove the score, including when the reason is a
-mismatch.
+mismatch, and make it specific enough to explain why this posting sits above
+or below the one next to it.
 
 Judge only what the posting and the profile support. Do not invent
 requirements the posting does not state. If the posting text is thin, say so
