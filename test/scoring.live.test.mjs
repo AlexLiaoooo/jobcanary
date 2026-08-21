@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -74,17 +73,17 @@ const POSTINGS = [
   },
 ];
 
-function tempRubriclessOpts() {
-  // The repo's own example profile, so the run exercises the prefix that
-  // ships rather than a two-line stand-in — prefix length decides whether
-  // prompt caching engages at all.
+function liveOpts() {
+  // The repo's own example profile and built-in rubric, so the run exercises
+  // the prefix that ships rather than a two-line stand-in — prefix length is
+  // what decides whether prompt caching engages at all.
   const profile = resolve(here, '..', 'examples', 'profile.md');
   return { profile, rubric: null, model: 'claude-opus-5', effort: 'high', concurrency: 3 };
 }
 
 test(`live: ${PROVIDER_ID} scores real postings`, { skip }, async () => {
   const provider = getProvider(PROVIDER_ID);
-  const opts = tempRubriclessOpts();
+  const opts = liveOpts();
 
   // Fail with the provider's own clear message rather than deep inside a call.
   await provider.checkPrecondition?.(opts);
@@ -118,10 +117,8 @@ test('live: an unreadable profile is refused before any request', { skip }, asyn
   // The precondition is what stands between a typo and a paid-for crawl, so
   // it is worth proving against the real provider too.
   const provider = getProvider(PROVIDER_ID);
-  const dir = mkdtempSync(join(tmpdir(), 'jc-live-'));
-  writeFileSync(join(dir, 'placeholder'), '', 'utf8');
   await assert.rejects(
-    () => provider.checkPrecondition({ ...tempRubriclessOpts(), profile: join(dir, 'no-such-profile.md') }),
+    () => provider.checkPrecondition({ ...liveOpts(), profile: join(tmpdir(), 'jc-live-missing', 'profile.md') }),
     /could not read profile at/
   );
 });
