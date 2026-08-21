@@ -155,6 +155,46 @@ test('scoring.batch true is rejected while the Batch API is unbuilt', () => {
   assert.throws(() => parseConfig(yaml, '/base'), /not implemented yet/);
 });
 
+test('a stringly-typed scoring.batch is rejected rather than treated as false', () => {
+  // "true" is not true: it slipped past the `=== true` rejection and would
+  // have been truthy at every later test of the value.
+  const yaml = 'scoring: {batch: "true"}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), /must be true or false, got "true"/);
+});
+
+test('a non-boolean scoring.batch of any kind is rejected', () => {
+  for (const value of ['1', 'yes', '0', 'null']) {
+    const yaml = `scoring: {batch: "${value}"}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n`;
+    assert.throws(() => parseConfig(yaml, '/base'), /must be true or false/, `batch: "${value}"`);
+  }
+});
+
+test('scoring.effort defaults to high and is validated against the known levels', () => {
+  const cfg = parseConfig('sites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', '/base');
+  assert.equal(cfg.scoring.effort, 'high');
+  for (const effort of ['low', 'medium', 'high', 'xhigh', 'max']) {
+    const yaml = `scoring: {effort: ${effort}}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n`;
+    assert.equal(parseConfig(yaml, '/base').scoring.effort, effort);
+  }
+});
+
+test('a misspelled scoring.effort is a ConfigError, not a 400 on every posting', () => {
+  const yaml = 'scoring: {effort: higH}\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.throws(() => parseConfig(yaml, '/base'), /scoring\.effort must be one of low, medium, high, xhigh, max/);
+});
+
+test('an empty scoring.rubric means absent, not the config directory', () => {
+  // resolve(baseDir, '') is baseDir, so this used to hand the provider a
+  // directory to read as a rubric — an EISDIR at scoring time, after the crawl.
+  const yaml = 'scoring: {rubric: ""}\nprofile: ./p.md\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.equal(parseConfig(yaml, '/base').scoring.rubric, null);
+});
+
+test('a whitespace-only scoring.rubric is treated the same way', () => {
+  const yaml = 'scoring: {rubric: "   "}\nprofile: ./p.md\nsites:\n  - {id: a, company: A, type: greenhouse, board: x}\n';
+  assert.equal(parseConfig(yaml, '/base').scoring.rubric, null);
+});
+
 test('scoring.concurrency defaults to 5 and must be a positive integer', () => {
   const cfg = parseConfig('sites:\n  - {id: a, company: A, type: greenhouse, board: x}\n', '/base');
   assert.equal(cfg.scoring.concurrency, 5);

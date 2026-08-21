@@ -10,6 +10,7 @@ export class ConfigError extends Error {
 }
 
 const PROVIDERS = ['none', 'anthropic', 'claude-cli'];
+const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const FORMATS = ['markdown', 'json', 'both'];
 const FIELDS = ['title', 'company', 'location', 'description', 'all'];
 
@@ -103,9 +104,24 @@ export function parseConfig(text, baseDir) {
   if (!Number.isInteger(scoring.concurrency) || scoring.concurrency < 1) {
     throw new ConfigError('scoring.concurrency must be a positive integer');
   }
+  // Not validated, this is a 400 on every posting — discovered after the whole
+  // crawl, for a typo. YAML quotes nothing, so 'higH' or 'max ' arrive as
+  // plain strings the API will reject one request at a time.
+  if (!EFFORTS.includes(scoring.effort)) {
+    throw new ConfigError(`scoring.effort must be one of ${EFFORTS.join(', ')}, got '${scoring.effort}'`);
+  }
   // The Batch API is specified but not built in this plan. Accepting the key
   // silently would leave a config option that does nothing — say so instead.
-  if (scoring.batch === true) {
+  //
+  // Typed, not truthiness-checked: `batch: "true"` is a string, which YAML
+  // produces from `batch: "true"` or `batch: yes!`, and which used to sail
+  // past both the `=== true` rejection here and any later `if (batch)` as a
+  // truthy value. A key that means "spend money differently" has to be a
+  // boolean or an error, never a maybe.
+  if (typeof scoring.batch !== 'boolean') {
+    throw new ConfigError(`scoring.batch must be true or false, got ${JSON.stringify(scoring.batch)}`);
+  }
+  if (scoring.batch) {
     throw new ConfigError(
       'scoring.batch is not implemented yet — the Batch API is planned but unbuilt, so leave it false'
     );
@@ -114,7 +130,12 @@ export function parseConfig(text, baseDir) {
     if (typeof raw.scoring.rubric !== 'string') {
       throw new ConfigError('scoring.rubric must be a path string');
     }
-    scoring.rubric = resolve(baseDir, raw.scoring.rubric);
+    // An empty string is absence, not a path: resolve('') returns the config's
+    // own directory, and the provider would then try to read a directory as a
+    // rubric and fail at scoring time with a baffling EISDIR.
+    if (raw.scoring.rubric.trim() !== '') {
+      scoring.rubric = resolve(baseDir, raw.scoring.rubric);
+    }
   }
 
   // resolve() throws a raw TypeError on a non-string, which the CLI reports as

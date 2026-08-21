@@ -128,7 +128,7 @@ scoring:
   provider: none               # none | anthropic | claude-cli (default: none)
   keywords: [graduate, cfd]     # used only by the 'none' provider (default: [])
   model: claude-opus-5           # used by the 'anthropic' provider (default: claude-opus-5)
-  effort: high                    # used by the 'anthropic' provider (default: high)
+  effort: high                    # low | medium | high | xhigh | max — 'anthropic' provider (default: high)
   concurrency: 5                   # 'anthropic' provider: requests kept in flight at once (default: 5)
   rubric: ./rubric.md               # optional; overrides the built-in rubric for either LLM provider (default: built-in)
   batch: false                       # must stay false — the Batch API is not implemented (default: false)
