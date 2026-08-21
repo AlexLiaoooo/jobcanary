@@ -399,7 +399,21 @@ test('a profile that cannot be read exits 2 before any site is fetched', async (
   assert.equal(existsSync(out), false, 'nothing is written when the config never validated');
 });
 
-test('a missing @anthropic-ai/sdk exits 2 before any site is fetched', async () => {
+// The optional peer dependency is deliberately absent from this repo’s install
+// (`npm ls` shows one dependency), so the test below runs the real path.
+//
+// Guarded for the checkout where someone has followed the README and installed
+// it, because there the failure is not a red test: the precondition would pass,
+// the crawl would proceed, and the anthropic provider would issue real outbound
+// requests to api.anthropic.com — up to six, with maxRetries 2 across two
+// postings — before the assertion below caught it. This suite promises in the
+// README and in CI that it touches no third-party host, and that promise has to
+// hold on a contributor’s machine too, not only on one where the SDK is absent.
+const sdkInstalled = await import('@anthropic-ai/sdk').then(() => true, () => false);
+
+test('a missing @anthropic-ai/sdk exits 2 before any site is fetched', {
+  skip: sdkInstalled ? '@anthropic-ai/sdk is installed in this checkout' : false,
+}, async () => {
   // The optional peer dependency is not installed in this repo, so this is
   // the real path: it used to throw out of score(), after the whole crawl.
   const { dir } = workspace();
