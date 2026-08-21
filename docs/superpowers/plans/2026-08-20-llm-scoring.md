@@ -1464,3 +1464,62 @@ whole suite passes with no network access and no API key.
 - The GitHub Actions daily workflow
 - Caching scores across runs
 - Everything in the carried-findings section of the Plan 1 plan
+
+## Carried findings — pick these up in the next plan
+
+Reviewed during this plan, judged non-blocking, deliberately carried.
+
+**Tests that pass for a weaker reason than their name claims.** Worth fixing
+early: each is a guard that would not catch its own regression.
+
+- The Anthropic client test asserts the pinned `maxRetries` and timeout values
+  on the exported constant, but never that `createClient` passes them. Revert
+  `createClient` to a bare `new Anthropic()` and the test still goes green.
+- A `claude-cli` precondition test proves the error message names the profile
+  rather than the binary, but never observes the absence of a spawn.
+- The non-boolean `scoring.batch` test says "of any kind" and tries only
+  quoted strings, not numbers, arrays or objects. The implementation handles
+  them; the test does not cover them.
+- The four rubric-property tests match phrases in `DEFAULT_RUBRIC`. A rewrite
+  that kept the words and lost the meaning would survive them.
+- The `claude-cli` batching test matches posting ids by substring, so `a:1`
+  also matches `a:10` through `a:19`. Harmless while every fake score is
+  identical.
+- No test combines a scrambled response order with an assertion on the output
+  array's order.
+
+**Structural, and cheapest to do before more providers exist.**
+
+- `checkPrecondition` is now async and awaited. Any new provider must follow
+  that shape.
+- `src/config.mjs` keeps its provider list hardcoded, duplicating the registry
+  in `src/scoring/index.mjs`, and cannot import it because index imports
+  anthropic which imports config. Extracting `ConfigError` into
+  `src/errors.mjs` breaks the cycle and lets config validate against the real
+  registry.
+- `unscored()` lives in the prompt module but is imported by `src/pipeline.mjs`,
+  which has nothing to do with prompts. It belongs beside the contract.
+- The provider interface now accepts either a bare array or an object carrying
+  scored postings and usage. Settle on one before a third provider implements
+  the wrong half.
+
+**Behavioural, small.**
+
+- On Windows the spawn timeout kills the shell rather than the claude
+  grandchild, so a timed-out batch can orphan a process.
+- `bin/jobcanary.mjs` treats only a null score as unscored while
+  `src/output/markdown.mjs` treats null or undefined. Currently an unreachable
+  divergence, because the contract rejects an undefined score before either
+  runs, but they should be one predicate.
+- The "nothing was read from the prompt cache" note prints even on a run where
+  every request threw, alongside a scoring-failed summary.
+- An empty-posting run writes zero for the cache figures under `anthropic` and
+  null under `claude-cli`.
+- `test/cli.test.mjs` has a known flake under load: eleven tests fail together
+  with exit 3 when the local fixture server is briefly unreachable, because
+  `src/http.mjs` has no retry.
+
+**Documentation drift, deliberate.** The spec and this plan still show the
+original `max_tokens` value, the deleted `JOBCANARY_SKIP_CLI_CHECK` escape
+hatch, and the pre-calibration rubric. They are dated design records, not
+instructions. Reconcile them if they are ever used as a source again.
