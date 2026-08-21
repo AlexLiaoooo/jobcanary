@@ -1,9 +1,7 @@
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { spawn } from 'node:child_process';
 import { ConfigError } from '../config.mjs';
 import { buildPostingBlock, buildPrefixFromSources, unscored } from './prompt.mjs';
 
-const execFileAsync = promisify(execFile);
 const BATCH = 10;
 const TIMEOUT_MS = 180_000;
 
@@ -12,18 +10,63 @@ const TIMEOUT_MS = 180_000;
  * whose `claude` is not a bare name on PATH (a wrapper script, an unusual
  * install location), and it doubles as a deterministic way to point this
  * provider at a binary that is guaranteed not to exist.
+ *
+ * Read on every call rather than captured at import: the env var is how a
+ * test points this provider at a stub, and a module-level constant would
+ * freeze whatever the environment happened to be when the module loaded.
  */
-const CLAUDE_BIN = process.env.JOBCANARY_CLAUDE_BIN || 'claude';
+const claudeBin = () => process.env.JOBCANARY_CLAUDE_BIN || 'claude';
+
+/**
+ * Spawn the CLI, hand it `input` on stdin, and resolve with its stdout.
+ *
+ * The prompt goes over stdin and never over argv: a ten-posting batch runs to
+ * tens of kilobytes and would blow through Windows' ~32 KB command-line limit.
+ * It is written explicitly here because `input` is an option of the *Sync*
+ * spawn/exec family only — async `execFile` silently discards it, leaving the
+ * child with a piped stdin that is never written and never closed, so a CLI
+ * that reads stdin to EOF hangs until the timeout fires. That was this
+ * provider's behaviour on every real invocation.
+ */
+function spawnClaude(args, { input = '', timeoutMs }) {
+  return new Promise((resolve, reject) => {
+    // On Windows the `claude` on PATH is a .cmd shim, and since Node 18.20 /
+    // 20.12 spawning a .cmd without a shell throws EINVAL outright — so this
+    // provider could not run there at all without the shell. The command line
+    // is passed as one string because the shell-plus-args form is deprecated
+    // (DEP0190); the only thing interpolated into it is the binary path from
+    // the environment, since the prompt itself goes over stdin.
+    const child = process.platform === 'win32'
+      ? spawn(`"${claudeBin()}" ${args.join(' ')}`, { shell: true, timeout: timeoutMs, windowsHide: true })
+      : spawn(claudeBin(), args, { timeout: timeoutMs });
+
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (c) => { stdout += c; });
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (c) => { stderr += c; });
+    child.on('error', reject);
+    child.on('close', (code, signal) => {
+      if (code === 0) return resolve(stdout);
+      const detail = stderr.trim().slice(0, 200);
+      return reject(new Error(
+        signal
+          ? `claude was killed by ${signal} after ${timeoutMs} ms${detail ? `: ${detail}` : ''}`
+          : `claude exited ${code}${detail ? `: ${detail}` : ''}`
+      ));
+    });
+    // A child that exits before draining stdin makes this write emit EPIPE.
+    // An unhandled 'error' on the stream would take the whole run down over a
+    // child that already said what it had to say.
+    child.stdin.on('error', () => {});
+    child.stdin.end(input);
+  });
+}
 
 /** Default runner: pipe the prompt to `claude -p` and return its stdout. */
-async function runClaude(prompt) {
-  const { stdout } = await execFileAsync(CLAUDE_BIN, ['-p'], {
-    input: prompt,
-    encoding: 'utf8',
-    timeout: TIMEOUT_MS,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return stdout;
+function runClaude(prompt) {
+  return spawnClaude(['-p'], { input: prompt, timeoutMs: TIMEOUT_MS });
 }
 
 /** Tolerate a fenced code block around the JSON, which the CLI often adds. */

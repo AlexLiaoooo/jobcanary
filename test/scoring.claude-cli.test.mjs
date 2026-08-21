@@ -1,16 +1,57 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import claudeCli from '../src/scoring/claude-cli.mjs';
 import { getProvider } from '../src/scoring/index.mjs';
 
+const PROFILE_TEXT = 'Graduate mechanical engineer. SENTINEL-PROFILE-MARKER.';
+
 function profileFile() {
   const dir = mkdtempSync(join(tmpdir(), 'jc-prof-'));
   const p = join(dir, 'profile.md');
-  writeFileSync(p, 'Graduate mechanical engineer.', 'utf8');
+  writeFileSync(p, PROFILE_TEXT, 'utf8');
   return p;
+}
+
+/**
+ * Write a stand-in for the `claude` binary that runs `body` under this Node.
+ *
+ * Spawned as a real child process, because the defect this exists to catch is
+ * "the default runner is never executed": every other test in this file
+ * injects `opts.exec`, so the code that actually talks to a child process had
+ * no coverage at all, and shipped a prompt that never reached its stdin.
+ *
+ * Windows needs the .cmd wrapper (a bare .mjs is not executable there);
+ * everything else gets a shebang wrapper, so both spawn paths are exercised
+ * on the platform they run on.
+ */
+function stubClaude(body) {
+  const dir = mkdtempSync(join(tmpdir(), 'jc-stub-'));
+  const js = join(dir, 'stub.mjs');
+  writeFileSync(js, body, 'utf8');
+  if (process.platform === 'win32') {
+    const cmd = join(dir, 'stub.cmd');
+    writeFileSync(cmd, `@echo off\r\n"${process.execPath}" "${js}" %*\r\n`, 'utf8');
+    return cmd;
+  }
+  const sh = join(dir, 'stub.sh');
+  writeFileSync(sh, `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`, 'utf8');
+  chmodSync(sh, 0o755);
+  return sh;
+}
+
+/** Point the provider's default runner at a stub for the duration of `fn`. */
+async function withStubBin(bin, fn) {
+  const saved = process.env.JOBCANARY_CLAUDE_BIN;
+  process.env.JOBCANARY_CLAUDE_BIN = bin;
+  try {
+    return await fn();
+  } finally {
+    if (saved === undefined) delete process.env.JOBCANARY_CLAUDE_BIN;
+    else process.env.JOBCANARY_CLAUDE_BIN = saved;
+  }
 }
 
 const posting = (id, over = {}) => ({
@@ -116,4 +157,47 @@ test('an empty posting list makes no invocations', async () => {
   const exec = fakeExec(() => scoresFor([]));
   assert.deepEqual(await claudeCli.score([], opts(exec)), []);
   assert.equal(exec.calls.length, 0);
+});
+
+// --- the default runner, executed for real ---------------------------------
+// The only tests in this file that spawn a process. They exist because every
+// test above injects `opts.exec`, which left the real runner — the one thing
+// that has to talk to a child process — with no coverage whatsoever.
+
+const ECHO_STUB = `
+let buf = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (c) => { buf += c; });
+process.stdin.on('end', () => {
+  const ids = [...buf.matchAll(/<posting id="([^"]+)">/g)].map((m) => m[1]);
+  process.stdout.write(JSON.stringify({
+    scores: ids.map((id) => ({
+      id,
+      score: buf.includes('SENTINEL-PROFILE-MARKER') ? 7 : 1,
+      rationale: 'read ' + buf.length + ' characters of prompt',
+    })),
+  }));
+});
+`;
+
+test('the default runner writes the prompt to the child on stdin', async () => {
+  const bin = stubClaude(ECHO_STUB);
+  // No opts.exec: this goes through runClaude and a real spawn.
+  const out = await withStubBin(bin, () =>
+    claudeCli.score([posting('a:1'), posting('a:2')], { profile: profileFile(), rubric: null }));
+
+  // The stub knows the ids and the profile marker only by reading its stdin,
+  // so a score of 7 on both is proof the whole prompt round-tripped.
+  assert.deepEqual(out.map((p) => p.id), ['a:1', 'a:2']);
+  assert.deepEqual(out.map((p) => p.score), [7, 7]);
+  assert.match(out[0].rationale, /read \d{3,} characters of prompt/);
+});
+
+test('the default runner reports a non-zero exit rather than hanging', async () => {
+  const bin = stubClaude("process.stderr.write('stub refused'); process.exit(3);");
+  const out = await withStubBin(bin, () =>
+    claudeCli.score([posting('a:1')], { profile: profileFile(), rubric: null }));
+  assert.equal(out[0].score, null);
+  assert.match(out[0].rationale, /claude exited 3/);
+  assert.match(out[0].rationale, /stub refused/);
 });
