@@ -168,6 +168,12 @@ The cost is reported rather than hidden. The run summary's `enrichmentFetches=` 
 
 A later release will make this converge properly — a separate excluded-id map, invalidated by a hash of the rules, so an exclusion is remembered only for as long as the rules that produced it are unchanged.
 
+### A posting that could not be scored is not marked seen
+
+`seen.json` records the postings a run actually scored. One that came back unscored — a single rate-limited request, a batch that would not parse — is left out deliberately, so the next run fetches it again and gives it a real score. Recording it would retire it on the strength of a failure: it would have appeared once, unranked at the bottom of a digest, and never been offered again.
+
+The run summary's `unscored=` count says how many postings that was. It matters because a partial scoring failure is otherwise silent: the run exits 0 and prints `scoring=ok`, because three failures out of ten are tolerated by design rather than escalated. `stats.unscored` carries the same number to library callers and into the JSON digest.
+
 ### Running more than once in a day
 
 A digest is named for the day, but a day can hold more than one run. jobcanary

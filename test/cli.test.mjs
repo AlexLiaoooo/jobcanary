@@ -296,6 +296,50 @@ test('a scoring failure still writes the digest and exits 4', async () => {
   const md = readFileSync(join(out, name), 'utf8');
   assert.match(md, /\[—\]/, 'postings appear unscored rather than vanishing');
   assert.match(r.stderr, /scoring/i);
+  // Nothing was scored, so nothing is marked seen. Recording them here would
+  // retire every posting of the run on the strength of a failure.
+  assert.deepEqual(JSON.parse(readFileSync(join(out, 'seen.json'), 'utf8')), {});
+});
+
+test('a partly failed scoring run records only the postings that were scored', async () => {
+  // The stub scores the first posting of the batch and forgets the second,
+  // which is what a rate limit looks like from here: exit 0, a digest with one
+  // ranked posting and one [—].
+  const { dir, cfg, out, bin } = scoringWorkspace(
+    "process.stdout.write(JSON.stringify({ scores: [{ id: ids[0], score: 6, rationale: 'scored fine' }] }));"
+  );
+
+  const r = await runCli(['run', '--config', cfg], {
+    cwd: dir,
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: bin },
+  });
+  assert.equal(r.code, 0, 'a partial failure is tolerated, not escalated');
+  assert.match(r.stdout, /kept=2 /);
+  assert.match(r.stdout, /unscored=1 scoring=ok/, 'the summary line has to show the failure');
+
+  const md = readFileSync(join(out, readdirSync(out).find((f) => f.endsWith('.md'))), 'utf8');
+  assert.equal((md.match(/### \[—\]/g) ?? []).length, 1);
+  assert.equal((md.match(/### \[6\/10\]/g) ?? []).length, 1);
+
+  // The unscored one is deliberately not retired: it gets another chance next
+  // run instead of having been shown once, unranked, and never again.
+  const seen = JSON.parse(readFileSync(join(out, 'seen.json'), 'utf8'));
+  assert.equal(Object.keys(seen).length, 1, `expected one recorded id, got ${JSON.stringify(seen)}`);
+});
+
+test('a fully scored run records every posting and reports unscored=0', async () => {
+  const { dir, cfg, out, bin } = scoringWorkspace(
+    "process.stdout.write(JSON.stringify({ scores: ids.map((id, i) => ({ id, score: i + 2, rationale: 'r' })) }));"
+  );
+
+  const r = await runCli(['run', '--config', cfg], {
+    cwd: dir,
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: bin },
+  });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /unscored=0 scoring=ok/);
+  const seen = JSON.parse(readFileSync(join(out, 'seen.json'), 'utf8'));
+  assert.deepEqual(Object.keys(seen).sort(), ['vantor:R-1001', 'vantor:R-1002']);
 });
 
 // The three precondition failures the spec requires to be caught before any

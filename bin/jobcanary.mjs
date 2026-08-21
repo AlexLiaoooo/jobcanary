@@ -99,10 +99,13 @@ async function main() {
   // and a number nobody can see is a number nobody can act on. scoring is in
   // the summary too, so a failure that will end in exit 4 is visible on the
   // same line as the rest of the run's outcome, not only in the exit code.
+  // unscored= is there for the same reason: a run where three of ten postings
+  // were rate-limited exits 0 and says scoring=ok, and without this number the
+  // only trace is three [—] headings in the digest.
   console.log(
     `scanned=${stats.scanned} seen=${stats.alreadySeen} excluded=${stats.excluded} ` +
     `kept=${stats.kept} enrichmentFetches=${stats.enrichmentFetches} siteErrors=${stats.siteErrors.length} ` +
-    `scoring=${stats.scoringError ? 'failed' : 'ok'}`
+    `unscored=${stats.unscored} scoring=${stats.scoringError ? 'failed' : 'ok'}`
   );
 
   if (values.dry) {
@@ -132,8 +135,17 @@ async function main() {
     }
   }
 
+  // Only postings that were actually scored are marked seen. A posting that
+  // came back unscored — one rate-limited request, one batch that would not
+  // parse — appeared once, unranked, and recording it would retire it for
+  // ever: it would never be offered again, and the reader would never learn
+  // there was anything to judge. Leaving it out costs one re-fetch and gets
+  // it properly scored on the next run.
   let next = seen;
-  for (const p of postings) next = recordSeen(next, p.id, date);
+  for (const p of postings) {
+    if (p.score === null) continue;
+    next = recordSeen(next, p.id, date);
+  }
   saveSeen(seenPath, pruneSeen(next, date, config.dedupe.retentionDays));
 
   // Scoring failed but the crawl did not: the digest is written unscored so

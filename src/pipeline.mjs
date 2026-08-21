@@ -13,15 +13,17 @@ import { unscored } from './scoring/prompt.mjs';
  * The CLI owns reading and writing state, which keeps this function testable
  * without a filesystem and makes it reusable from a library consumer.
  *
- * `stats.excludedIds` and `stats.enrichmentFetches` are reported so a caller
- * can see what the rules dropped and what enrichment cost. Neither is state:
+ * `stats.excludedIds`, `stats.enrichmentFetches` and `stats.unscored` are
+ * reported so a caller can see what the rules dropped, what enrichment cost,
+ * and how much of the run the scorer could not judge. None of them is state:
  * excluded ids are deliberately not persisted (see the rule loop below).
  *
  * @param {object} config
  * @param {{seen?: object, browser?: boolean, http?: Function, logger?: object}} [opts]
  * @returns {Promise<{postings: object[], stats: {scanned: number, excluded: number,
- *   excludedIds: string[], alreadySeen: number, kept: number, enrichmentFetches: number,
- *   siteErrors: {site: string, error: string}[], scoringError: string|null}}>}
+ *   excludedIds: string[], alreadySeen: number, kept: number, unscored: number,
+ *   enrichmentFetches: number, siteErrors: {site: string, error: string}[],
+ *   scoringError: string|null}}>}
  */
 export async function run(config, { seen = {}, browser = false, http, logger = console } = {}) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
@@ -178,6 +180,10 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
       excludedIds,
       alreadySeen,
       kept: postings.length,
+      // Reported because a partial scoring failure is otherwise completely
+      // silent: the run exits 0, says scoring=ok, and three of the ten
+      // postings quietly carry [—]. The CLI puts this on the summary line.
+      unscored: postings.filter((p) => p.score === null).length,
       enrichmentFetches,
       siteErrors,
       scoringError,

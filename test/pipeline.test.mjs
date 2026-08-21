@@ -316,6 +316,26 @@ test('every posting scoring null is a total failure, and each keeps its own reas
   assert.deepEqual(postings.map((p) => p.rationale), ['reason 0', 'reason 1']);
 });
 
+test('stats.unscored counts the postings the provider could not judge', async () => {
+  fakeAdapter('fake-three', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }, { n: 3, title: 'C' }]);
+  fakeProvider('fake-two-of-three', async (ps) => ps.map((p, i) => (i === 0
+    ? { ...p, score: 5, rationale: 'scored', verdict: 'keep' }
+    : { ...p, score: null, rationale: 'not scored: rate limited', verdict: 'keep' })));
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-three', enabled: true }] });
+  cfg.scoring.provider = 'fake-two-of-three';
+
+  const { stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(stats.kept, 3);
+  assert.equal(stats.unscored, 2);
+  assert.equal(stats.scoringError, null, 'a partial failure is still not a run failure');
+});
+
+test('stats.unscored is 0 when everything scored', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const { stats } = await run(baseConfig(), { seen: {}, logger: quietLogger });
+  assert.equal(stats.unscored, 0);
+});
+
 test('a mix of one scored and one unscored posting is tolerated, not a total failure', async () => {
   fakeAdapter('fake-two', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }]);
   fakeProvider('fake-mixed', async (ps) => [
