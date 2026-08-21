@@ -154,6 +154,29 @@ test('a null parsed_output degrades that posting only', async () => {
   assert.equal(byId['a:2'].score, 8);
 });
 
+test('a truncated response is named as truncation, not as a schema mismatch', async () => {
+  // stop_reason max_tokens also arrives with parsed_output null, so without
+  // its own branch it is reported as "the response did not match the score
+  // schema" — which sends the reader to the schema instead of to max_tokens.
+  const client = fakeClient((_req, i) => (i === 0
+    ? { parsed_output: null, stop_reason: 'max_tokens' }
+    : ok(6)));
+  const out = await anthropic.score([posting({ id: 'a:1' }), posting({ id: 'a:2' })], opts(client));
+  const byId = Object.fromEntries(out.map((p) => [p.id, p]));
+  assert.equal(byId['a:1'].score, null);
+  assert.match(byId['a:1'].rationale, /hit max_tokens/);
+  assert.doesNotMatch(byId['a:1'].rationale, /schema/);
+  assert.equal(byId['a:2'].score, 6);
+});
+
+test('max_tokens leaves room for thinking as well as the answer', async () => {
+  // Thinking tokens count against this cap and the default effort is high, so
+  // a cap sized for the JSON object alone truncates systematically.
+  const client = fakeClient(() => ok(5));
+  await anthropic.score([posting()], opts(client));
+  assert.ok(client.calls[0].max_tokens >= 4096, `max_tokens was ${client.calls[0].max_tokens}`);
+});
+
 test('a refusal degrades that posting only', async () => {
   const client = fakeClient((_req, i) => (i === 0
     ? { parsed_output: null, stop_reason: 'refusal', stop_details: { type: 'refusal', category: 'other' } }

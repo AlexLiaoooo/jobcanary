@@ -4,6 +4,16 @@ import { SCORE_SCHEMA, buildPostingBlock, buildPrefixFromSources, unscored } fro
 const SDK = '@anthropic-ai/sdk';
 
 /**
+ * The response cap, not a spend commitment: unused tokens cost nothing, and
+ * every token this does not allow is a truncated response that has already
+ * been paid for. Thinking tokens count against it, and this runs adaptive
+ * thinking at effort `high` by default, so the old 1024 left very little room
+ * for the answer itself — and a systematic truncation would leave every
+ * posting unscored after a full crawl.
+ */
+const MAX_TOKENS = 4096;
+
+/**
  * The SDK is an optional peer dependency: someone scoring by keyword should
  * not have to install it. Load it only when this provider is actually in use.
  *
@@ -77,7 +87,7 @@ export default {
       try {
         const res = await client.messages.parse({
           model: opts.model,
-          max_tokens: 1024,
+          max_tokens: MAX_TOKENS,
           system: [{ type: 'text', text: prefix, cache_control: { type: 'ephemeral' } }],
           messages: [{ role: 'user', content: buildPostingBlock(posting) }],
           thinking: { type: 'adaptive' },
@@ -91,6 +101,15 @@ export default {
         // reading content, and degrade this posting rather than the run.
         if (res.stop_reason === 'refusal') {
           return unscored(posting, `the model refused (${res.stop_details?.category ?? 'no category'})`);
+        }
+        // Truncation is also a 200 with a null parsed_output, and it would
+        // otherwise be reported as "the response did not match the score
+        // schema" — a wrong diagnosis that sends the reader looking at the
+        // schema instead of at max_tokens. It is worth naming separately
+        // because it is the failure that can happen on *every* posting at
+        // once, after the whole run has been paid for.
+        if (res.stop_reason === 'max_tokens') {
+          return unscored(posting, 'the response hit max_tokens before completing');
         }
         if (!res.parsed_output) {
           return unscored(posting, 'the response did not match the score schema');
