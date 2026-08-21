@@ -5,17 +5,24 @@ const SDK = '@anthropic-ai/sdk';
 
 /**
  * The SDK is an optional peer dependency: someone scoring by keyword should
- * not have to install it. Load it only when a real client is actually needed.
+ * not have to install it. Load it only when this provider is actually in use.
+ *
+ * Separate from createClient so the precondition can prove the package is
+ * there before the crawl, rather than throwing out of score() once every site
+ * has been fetched and every enrichment request paid for.
  */
-async function createClient() {
-  let Anthropic;
+async function loadSdk() {
   try {
-    ({ default: Anthropic } = await import(SDK));
+    return (await import(SDK)).default;
   } catch {
     throw new ConfigError(
       `scoring.provider 'anthropic' needs the ${SDK} package — install it with: npm install ${SDK}`
     );
   }
+}
+
+async function createClient() {
+  const Anthropic = await loadSdk();
   return new Anthropic();
 }
 
@@ -38,15 +45,26 @@ export default {
   id: 'anthropic',
 
   /**
-   * Checked before any site is fetched. Discovering a missing key after
-   * paying for a full crawl is the failure this exists to prevent.
+   * Everything this provider needs before a single site is fetched: the key,
+   * the two files it reads, and the SDK itself. Discovering any of them after
+   * paying for a full crawl is the failure this exists to prevent — and until
+   * this was awaited it could only check the key, because the other two
+   * require a promise.
+   *
+   * Ordered cheapest-first: an env var, then two local reads, then a module
+   * load, so the commonest mistake is reported without doing the other work.
    */
-  checkPrecondition() {
+  async checkPrecondition(opts = {}) {
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new ConfigError(
         "scoring.provider 'anthropic' needs ANTHROPIC_API_KEY in the environment"
       );
     }
+    // Reads both files and throws ConfigError naming whichever is unreadable.
+    // The result is discarded: reading them twice costs nothing next to a
+    // crawl, and proving them readable here is the whole point.
+    buildPrefixFromSources({ rubric: opts.rubric, profile: opts.profile });
+    await loadSdk();
   },
 
   async score(postings, opts = {}) {

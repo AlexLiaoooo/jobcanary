@@ -4,6 +4,9 @@ import { buildPostingBlock, buildPrefixFromSources, unscored } from './prompt.mj
 
 const BATCH = 10;
 const TIMEOUT_MS = 180_000;
+// The precondition probe only asks the binary to identify itself, so it gets
+// a much shorter leash than a scoring batch.
+const VERSION_TIMEOUT_MS = 20_000;
 
 /**
  * Which binary to invoke. Overridable via JOBCANARY_CLAUDE_BIN for anyone
@@ -107,12 +110,27 @@ function buildBatchPrompt(prefix, batch) {
 export default {
   id: 'claude-cli',
 
-  checkPrecondition() {
-    // Presence of the binary is checked lazily by the first invocation; what
-    // matters here is failing before the crawl when it is obviously absent.
-    if (process.env.JOBCANARY_SKIP_CLI_CHECK === '1') return;
-    if (!process.env.PATH) {
-      throw new ConfigError("scoring.provider 'claude-cli' needs the claude binary on PATH");
+  /**
+   * Everything this provider needs before a single site is fetched: the two
+   * files it reads, and a binary that actually runs.
+   *
+   * This used to assert that process.env.PATH was non-empty, which is true on
+   * every machine anyone will ever run this on — so a missing `claude` was
+   * discovered after the whole crawl had been paid for, as a scoring failure
+   * rather than the config error it is.
+   */
+  async checkPrecondition(opts = {}) {
+    // Reads both files and throws ConfigError naming whichever is unreadable.
+    // The result is discarded: reading them twice costs nothing next to a
+    // crawl, and proving them readable here is the whole point.
+    buildPrefixFromSources({ rubric: opts.rubric, profile: opts.profile });
+    try {
+      await spawnClaude(['--version'], { timeoutMs: VERSION_TIMEOUT_MS });
+    } catch (err) {
+      throw new ConfigError(
+        `scoring.provider 'claude-cli' could not run '${claudeBin()}' (${err.message}) — ` +
+        'install Claude Code, or point JOBCANARY_CLAUDE_BIN at the binary'
+      );
     }
   },
 

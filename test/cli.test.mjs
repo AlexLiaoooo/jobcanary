@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { createServer } from 'node:http';
-import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, readdirSync, existsSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,8 +25,15 @@ const detailBody = readFileSync(join(here, 'fixtures/workday-detail.json'), 'utf
  *   broken — always 500s, to drive the all-sites-failed exit locally
  *   empty  — a valid but empty board, to drive the zero-postings exit
  */
+let boardRequests = 0;
+/** How many board requests the server has answered since the last reset. */
+function resetBoardRequests() {
+  boardRequests = 0;
+}
+
 const server = createServer((req, res) => {
   req.resume();
+  boardRequests += 1;
   const json = (status, body) => {
     res.writeHead(status, { 'Content-Type': 'application/json' });
     res.end(body);
@@ -74,6 +81,60 @@ function workspace(tenant = 'vantor') {
 }
 
 const digestName = (out) => readdirSync(out).find((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f));
+
+/**
+ * Write a stand-in for the `claude` binary that runs `body` under this Node,
+ * so the claude-cli provider can be driven end to end through the CLI without
+ * anybody having Claude Code installed. Windows cannot execute a bare .mjs,
+ * hence the .cmd wrapper there and a shebang wrapper everywhere else.
+ */
+function stubClaude(body) {
+  const dir = mkdtempSync(join(tmpdir(), 'jc-stub-'));
+  const js = join(dir, 'stub.mjs');
+  writeFileSync(js, body, 'utf8');
+  if (process.platform === 'win32') {
+    const cmd = join(dir, 'stub.cmd');
+    writeFileSync(cmd, `@echo off\r\n"${process.execPath}" "${js}" %*\r\n`, 'utf8');
+    return cmd;
+  }
+  const sh = join(dir, 'stub.sh');
+  writeFileSync(sh, `#!/bin/sh\nexec "${process.execPath}" "${js}" "$@"\n`, 'utf8');
+  chmodSync(sh, 0o755);
+  return sh;
+}
+
+/**
+ * A workspace configured for the claude-cli scoring provider, with a profile
+ * on disk. `scoringBody` is the stub's behaviour for the `-p` invocation; it
+ * always answers `--version`, so the precondition passes and the run reaches
+ * scoring.
+ */
+function scoringWorkspace(scoringBody) {
+  const dir = mkdtempSync(join(tmpdir(), 'jc-'));
+  const cfg = join(dir, 'config.yaml');
+  writeFileSync(join(dir, 'profile.md'), 'Graduate engineer.', 'utf8');
+  writeFileSync(cfg, [
+    'output:',
+    '  dir: ./out',
+    'profile: ./profile.md',
+    'scoring:',
+    '  provider: claude-cli',
+    'sites:',
+    `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
+    '',
+  ].join('\n'), 'utf8');
+  const bin = stubClaude(`
+    if (process.argv.includes('--version')) { process.stdout.write('1.2.3'); process.exit(0); }
+    let buf = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (c) => { buf += c; });
+    process.stdin.on('end', () => {
+      const ids = [...buf.matchAll(/<posting id="([^"]+)">/g)].map((m) => m[1]);
+      ${scoringBody}
+    });
+  `);
+  return { dir, cfg, out: join(dir, 'out'), bin };
+}
 
 test('--help exits 0 and lists the run command', async () => {
   const r = await runCli(['--help']);
@@ -216,33 +277,18 @@ test('every site returning zero postings exits 3', async () => {
   assert.equal(existsSync(out), false, 'a systemic break must not write an empty digest');
 });
 
-// A provider that cannot possibly work: claude-cli with a profile, pointed at
-// a claude binary name that cannot exist via JOBCANARY_CLAUDE_BIN rather than
-// a stripped PATH (deterministic across platforms — see the README). Every
-// batch invocation fails, every posting degrades to unscored individually
-// (claude-cli.mjs's own, deliberate behaviour — see
-// scoring.claude-cli.test.mjs), and it is src/pipeline.mjs's total-failure
-// guard — added after this was first found to exit 0 silently — that turns
-// "nothing at all got scored" into stats.scoringError and this exit 4.
+// The binary runs and answers --version, so the precondition passes and the
+// run reaches scoring — where every batch comes back as prose instead of JSON.
+// Every posting degrades to unscored individually (claude-cli.mjs's own,
+// deliberate behaviour — see scoring.claude-cli.test.mjs), and it is
+// src/pipeline.mjs's total-failure guard that turns "nothing at all got
+// scored" into stats.scoringError and this exit 4.
 test('a scoring failure still writes the digest and exits 4', async () => {
-  const { dir, out } = workspace();
-  const cfg = join(dir, 'scoring.yaml');
-  const profile = join(dir, 'profile.md');
-  writeFileSync(profile, 'Graduate engineer.', 'utf8');
-  writeFileSync(cfg, [
-    'output:',
-    '  dir: ./out',
-    'profile: ./profile.md',
-    'scoring:',
-    '  provider: claude-cli',
-    'sites:',
-    `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
-    '',
-  ].join('\n'), 'utf8');
+  const { dir, cfg, out, bin } = scoringWorkspace("process.stdout.write('I am afraid I cannot do that');");
 
   const r = await runCli(['run', '--config', cfg], {
     cwd: dir,
-    env: { ...process.env, JOBCANARY_CLAUDE_BIN: 'jobcanary-claude-does-not-exist' },
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: bin },
   });
   assert.equal(r.code, 4, 'scoring failed but the crawl succeeded');
   const name = readdirSync(out).find((f) => f.endsWith('.md'));
@@ -252,34 +298,86 @@ test('a scoring failure still writes the digest and exits 4', async () => {
   assert.match(r.stderr, /scoring/i);
 });
 
-// Distinct from the test above: this drives the failure through
-// buildPrefixFromSources throwing directly out of score() (a profile that
-// validates at config load but is gone by the time scoring reads it), not
-// through the all-null-degrade guard. Kept because it exercises the older,
-// separate path where scoringError was already set inside the try/catch —
-// coverage the test above does not provide.
-test('scoring fails outright before any posting is attempted still writes the digest and exits 4', async () => {
-  const { dir, out } = workspace();
-  const cfg = join(dir, 'scoring.yaml');
+// The three precondition failures the spec requires to be caught before any
+// site is fetched. Each is a config error (exit 2), and the fixture server
+// must not have been asked for a single thing.
+
+test('a claude-cli binary that is not there exits 2 before any site is fetched', async () => {
+  const { dir, cfg } = scoringWorkspace('process.stdout.write("{}");');
+  resetBoardRequests();
+  const r = await runCli(['run', '--config', cfg], {
+    cwd: dir,
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: 'jobcanary-claude-does-not-exist' },
+  });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /config error/);
+  assert.match(r.stderr, /could not run 'jobcanary-claude-does-not-exist'/);
+  assert.equal(boardRequests, 0, 'the crawl must not have been paid for');
+});
+
+test('a profile that cannot be read exits 2 before any site is fetched', async () => {
+  const { dir, cfg, out, bin } = scoringWorkspace('process.stdout.write("{}");');
+  writeFileSync(cfg, readFileSync(cfg, 'utf8').replace('./profile.md', './does-not-exist.md'), 'utf8');
+  resetBoardRequests();
+  const r = await runCli(['run', '--config', cfg], {
+    cwd: dir,
+    env: { ...process.env, JOBCANARY_CLAUDE_BIN: bin },
+  });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /could not read profile at/);
+  assert.equal(boardRequests, 0, 'the crawl must not have been paid for');
+  assert.equal(existsSync(out), false, 'nothing is written when the config never validated');
+});
+
+test('a missing @anthropic-ai/sdk exits 2 before any site is fetched', async () => {
+  // The optional peer dependency is not installed in this repo, so this is
+  // the real path: it used to throw out of score(), after the whole crawl.
+  const { dir } = workspace();
+  const cfg = join(dir, 'anthropic.yaml');
+  writeFileSync(join(dir, 'profile.md'), 'Graduate engineer.', 'utf8');
   writeFileSync(cfg, [
     'output:',
     '  dir: ./out',
-    'profile: ./does-not-exist.md',
+    'profile: ./profile.md',
     'scoring:',
-    '  provider: claude-cli',
+    '  provider: anthropic',
     'sites:',
     `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
     '',
   ].join('\n'), 'utf8');
+  resetBoardRequests();
 
-  const r = await runCli(['run', '--config', cfg], { cwd: dir });
-  assert.equal(r.code, 4, 'scoring failed but the crawl succeeded');
-  const name = readdirSync(out).find((f) => f.endsWith('.md'));
-  assert.ok(name, 'the digest must still be written');
-  const md = readFileSync(join(out, name), 'utf8');
-  assert.match(md, /\[—\]/, 'postings appear unscored rather than vanishing');
-  assert.match(r.stderr, /scoring failed/i);
-  assert.match(r.stderr, /profile/i);
+  const r = await runCli(['run', '--config', cfg], {
+    cwd: dir,
+    env: { ...process.env, ANTHROPIC_API_KEY: 'sk-test-not-used' },
+  });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /@anthropic-ai\/sdk/);
+  assert.equal(boardRequests, 0, 'the crawl must not have been paid for');
+});
+
+test('a missing ANTHROPIC_API_KEY exits 2 before any site is fetched', async () => {
+  const { dir } = workspace();
+  const cfg = join(dir, 'anthropic.yaml');
+  writeFileSync(join(dir, 'profile.md'), 'Graduate engineer.', 'utf8');
+  writeFileSync(cfg, [
+    'output:',
+    '  dir: ./out',
+    'profile: ./profile.md',
+    'scoring:',
+    '  provider: anthropic',
+    'sites:',
+    `  - {id: vantor, company: Vantor Propulsion, type: workday, host: "${host}", tenant: vantor, board: External}`,
+    '',
+  ].join('\n'), 'utf8');
+  resetBoardRequests();
+
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  const r = await runCli(['run', '--config', cfg], { cwd: dir, env });
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /ANTHROPIC_API_KEY/);
+  assert.equal(boardRequests, 0, 'the crawl must not have been paid for');
 });
 
 test('an LLM provider without a profile exits 2 before any fetch', async () => {

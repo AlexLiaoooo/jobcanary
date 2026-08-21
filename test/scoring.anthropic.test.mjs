@@ -42,25 +42,61 @@ test('registry resolves the anthropic provider', () => {
   assert.equal(getProvider('anthropic').id, 'anthropic');
 });
 
-test('checkPrecondition throws when ANTHROPIC_API_KEY is absent', () => {
+/** Run `fn` with ANTHROPIC_API_KEY set (or removed, for `key === null`). */
+async function withKey(key, fn) {
   const saved = process.env.ANTHROPIC_API_KEY;
-  delete process.env.ANTHROPIC_API_KEY;
+  if (key === null) delete process.env.ANTHROPIC_API_KEY;
+  else process.env.ANTHROPIC_API_KEY = key;
   try {
-    assert.throws(() => anthropic.checkPrecondition({}), /ANTHROPIC_API_KEY/);
-  } finally {
-    if (saved !== undefined) process.env.ANTHROPIC_API_KEY = saved;
-  }
-});
-
-test('checkPrecondition passes when the key is present', () => {
-  const saved = process.env.ANTHROPIC_API_KEY;
-  process.env.ANTHROPIC_API_KEY = 'sk-test';
-  try {
-    assert.doesNotThrow(() => anthropic.checkPrecondition({}));
+    return await fn();
   } finally {
     if (saved === undefined) delete process.env.ANTHROPIC_API_KEY;
     else process.env.ANTHROPIC_API_KEY = saved;
   }
+}
+
+const missingPath = (name) => join(tmpdir(), 'jc-anthropic-missing', name);
+
+test('checkPrecondition rejects when ANTHROPIC_API_KEY is absent', async () => {
+  await withKey(null, () =>
+    assert.rejects(() => anthropic.checkPrecondition({ profile: profileFile() }), /ANTHROPIC_API_KEY/));
+});
+
+test('checkPrecondition rejects an unreadable profile before the crawl, not at scoring time', async () => {
+  await withKey('sk-test', () => assert.rejects(
+    () => anthropic.checkPrecondition({ profile: missingPath('no-profile.md'), rubric: null }),
+    (err) => {
+      assert.equal(err.name, 'ConfigError');
+      assert.match(err.message, /could not read profile at/);
+      return true;
+    }
+  ));
+});
+
+test('checkPrecondition rejects an unreadable rubric too', async () => {
+  await withKey('sk-test', () => assert.rejects(
+    () => anthropic.checkPrecondition({ profile: profileFile(), rubric: missingPath('no-rubric.md') }),
+    /could not read scoring\.rubric at/
+  ));
+});
+
+// The optional peer dependency is deliberately absent from this repo's
+// install (`npm ls` shows one dependency), so this is the real code path.
+// Guarded anyway, for a checkout where someone has installed it.
+const sdkInstalled = await import('@anthropic-ai/sdk').then(() => true, () => false);
+
+test('checkPrecondition rejects when the optional SDK is not installed', {
+  skip: sdkInstalled ? '@anthropic-ai/sdk is installed in this checkout' : false,
+}, async () => {
+  await withKey('sk-test', () => assert.rejects(
+    () => anthropic.checkPrecondition({ profile: profileFile(), rubric: null }),
+    (err) => {
+      assert.equal(err.name, 'ConfigError');
+      assert.match(err.message, /@anthropic-ai\/sdk/);
+      assert.match(err.message, /npm install/);
+      return true;
+    }
+  ));
 });
 
 test('one request is made per posting', async () => {

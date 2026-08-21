@@ -34,10 +34,18 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   // already fails fast in the `active` filter.
   const provider = getProvider(config.scoring.provider);
 
-  // A provider's precondition (an API key, a binary on PATH) is checked here,
-  // before a single site is fetched — discovering a missing key after paying
-  // for a full crawl is the failure this ordering exists to prevent.
-  provider.checkPrecondition?.(config.scoring);
+  // A provider's precondition (an API key, an installed SDK, a binary that
+  // runs, readable prompt sources) is checked here, before a single site is
+  // fetched — discovering any of them after paying for a full crawl is the
+  // failure this ordering exists to prevent.
+  //
+  // Awaited: un-awaited, a precondition could not import() a module or probe a
+  // binary, which is exactly why two of the three failures it exists to
+  // prevent used to surface as an exit 4 after the crawl instead. It gets the
+  // same options object score() does, profile included, so a provider never
+  // has to check one thing here and a different thing there.
+  const scoringOpts = { ...config.scoring, profile: config.profile };
+  await provider.checkPrecondition?.(scoringOpts);
 
   const active = config.sites.filter((site) => {
     if (site.enabled === false) return false;
@@ -147,7 +155,7 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   let postings;
   let scoringError = null;
   try {
-    postings = await provider.score(enriched, { ...config.scoring, profile: config.profile });
+    postings = await provider.score(enriched, scoringOpts);
     assertScoreContract(enriched, postings);
   } catch (err) {
     scoringError = err.message;

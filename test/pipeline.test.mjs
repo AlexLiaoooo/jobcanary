@@ -355,3 +355,45 @@ test('a provider precondition is checked before any site is fetched', async () =
   await assert.rejects(() => run(cfg, { seen: {}, logger: quietLogger }), /no key/);
   assert.equal(fetched, false, 'the precondition must fail before the crawl is paid for');
 });
+
+test('an async precondition is awaited, not fired and forgotten', async () => {
+  // Un-awaited, a rejected promise here would be an unhandled rejection and
+  // the crawl would carry on regardless — which is exactly why a missing SDK
+  // and a missing binary could not be checked before this was awaited.
+  let fetched = false;
+  const adapter = fakeAdapter('fake-counted-async', [{ n: 1, title: 'A' }]);
+  const realFetch = adapter.fetch.bind(adapter);
+  adapter.fetch = async (...args) => { fetched = true; return realFetch(...args); };
+  fakeProvider('fake-async-precondition', async (ps) => ps, {
+    async checkPrecondition() {
+      await new Promise((r) => setTimeout(r, 1));
+      throw new Error('the dependency is not installed');
+    },
+  });
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-counted-async', enabled: true }] });
+  cfg.scoring.provider = 'fake-async-precondition';
+
+  await assert.rejects(() => run(cfg, { seen: {}, logger: quietLogger }), /not installed/);
+  assert.equal(fetched, false, 'the precondition must fail before the crawl is paid for');
+});
+
+test('the precondition sees the same options score() does, profile included', async () => {
+  // They used to differ: score() got the profile path, the precondition did
+  // not, so a provider could not check at load time the file it would read at
+  // scoring time.
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  let seenByPrecondition = null;
+  let seenByScore = null;
+  fakeProvider('fake-records-opts', async (ps, o) => {
+    seenByScore = o;
+    return ps.map((p) => ({ ...p, score: 5, rationale: 'r', verdict: 'keep' }));
+  }, {
+    checkPrecondition(o) { seenByPrecondition = o; },
+  });
+  const cfg = baseConfig({ profile: '/somewhere/profile.md' });
+  cfg.scoring.provider = 'fake-records-opts';
+
+  await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(seenByPrecondition.profile, '/somewhere/profile.md');
+  assert.deepEqual(seenByPrecondition, seenByScore);
+});

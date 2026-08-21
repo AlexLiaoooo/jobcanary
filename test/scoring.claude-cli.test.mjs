@@ -224,6 +224,48 @@ test('the default runner writes the prompt to the child on stdin', async () => {
   assert.match(out[0].rationale, /read \d{3,} characters of prompt/);
 });
 
+test('checkPrecondition accepts a binary that answers --version', async () => {
+  const bin = stubClaude("process.stdout.write('1.2.3');");
+  await withStubBin(bin, () =>
+    claudeCli.checkPrecondition({ profile: profileFile(), rubric: null }));
+});
+
+test('checkPrecondition rejects a binary that is not there', async () => {
+  await withStubBin('jobcanary-claude-does-not-exist', () => assert.rejects(
+    () => claudeCli.checkPrecondition({ profile: profileFile(), rubric: null }),
+    (err) => {
+      assert.equal(err.name, 'ConfigError');
+      assert.match(err.message, /could not run 'jobcanary-claude-does-not-exist'/);
+      assert.match(err.message, /JOBCANARY_CLAUDE_BIN/);
+      return true;
+    }
+  ));
+});
+
+test('checkPrecondition rejects a binary that runs but fails', async () => {
+  const bin = stubClaude('process.exit(1);');
+  await withStubBin(bin, () => assert.rejects(
+    () => claudeCli.checkPrecondition({ profile: profileFile(), rubric: null }),
+    /could not run/
+  ));
+});
+
+test('checkPrecondition rejects an unreadable profile without spawning anything', async () => {
+  // The binary name cannot resolve, so if this reached the probe it would
+  // report the binary rather than the profile: the files are checked first.
+  await withStubBin('jobcanary-claude-does-not-exist', () => assert.rejects(
+    () => claudeCli.checkPrecondition({
+      profile: join(tmpdir(), 'jc-cli-missing', 'no-profile.md'),
+      rubric: null,
+    }),
+    (err) => {
+      assert.equal(err.name, 'ConfigError');
+      assert.match(err.message, /could not read profile at/);
+      return true;
+    }
+  ));
+});
+
 test('the default runner reports a non-zero exit rather than hanging', async () => {
   const bin = stubClaude("process.stderr.write('stub refused'); process.exit(3);");
   const out = await withStubBin(bin, () =>
