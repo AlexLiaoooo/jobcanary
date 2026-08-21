@@ -22,7 +22,7 @@ export function unwrapScoreResult(raw) {
 
 /**
  * Enforce the scoring provider contract: exactly one result per input
- * posting, matched by id.
+ * posting, matched by id, each one a keep with a renderable score.
  *
  * This is checked rather than trusted because the failure it catches is
  * silent and permanent. The CLI records `seen.json` from the provider's
@@ -43,6 +43,30 @@ export function assertScoreContract(input, output) {
     // previous result already claimed, which catches duplicates too.
     if (!expected.delete(result?.id)) {
       throw new Error(`scoring provider returned an unknown posting id '${result?.id}'`);
+    }
+
+    // Identity is not enough. A provider returning verdict 'omit' would be
+    // filtered out of the digest by renderDigest *and* recorded in seen.json
+    // by the CLI — disappeared for ever, unseen, with nothing reported. That
+    // is the exact failure this module exists to prevent, and the model has
+    // no power to omit by design, so a non-'keep' verdict is a broken
+    // provider rather than a judgement to honour.
+    if (result.verdict !== 'keep') {
+      throw new Error(
+        `scoring provider returned verdict '${result.verdict}' for posting id '${result.id}' — ` +
+        'providers score and rank, they do not decide what the reader sees'
+      );
+    }
+
+    // null means "could not be scored" and is reported as such. Anything else
+    // has to be a score the digest can render and order: [undefined/10] and a
+    // comparator returning NaN are both silent when they happen.
+    const { score } = result;
+    if (!(score === null || (Number.isInteger(score) && score >= 1 && score <= 10))) {
+      throw new Error(
+        `scoring provider returned an invalid score ${JSON.stringify(score)} for posting id '${result.id}' ` +
+        '— expected null or an integer 1-10'
+      );
     }
   }
   if (expected.size > 0) {

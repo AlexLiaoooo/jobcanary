@@ -54,6 +54,41 @@ test('an extra posting throws and names it', () => {
   assert.throws(() => assertScoreContract([p('a')], [s('a'), s('zz')]), /unknown posting id 'zz'/);
 });
 
+test('an unscored result passes: null is what "could not be scored" looks like', () => {
+  assert.doesNotThrow(() => assertScoreContract([p('a')], [{ ...s('a'), score: null }]));
+});
+
+test('a verdict other than keep throws rather than disappearing a posting', () => {
+  // renderDigest filters verdict 'omit' out of the digest and the CLI records
+  // it in seen.json, so a provider that returned one would make the posting
+  // vanish for ever with nothing reported anywhere.
+  assert.throws(
+    () => assertScoreContract([p('a')], [{ ...s('a'), verdict: 'omit' }]),
+    /returned verdict 'omit' for posting id 'a'/
+  );
+});
+
+test('a missing verdict throws too', () => {
+  const { verdict, ...noVerdict } = s('a');
+  assert.throws(() => assertScoreContract([p('a')], [noVerdict]), /returned verdict/);
+});
+
+for (const [label, score] of [
+  ['undefined', undefined],
+  ['out of range high', 11],
+  ['out of range low', 0],
+  ['fractional', 4.5],
+  ['a string', '7'],
+  ['NaN', Number.NaN],
+]) {
+  test(`a score that is ${label} throws`, () => {
+    assert.throws(
+      () => assertScoreContract([p('a')], [{ ...s('a'), score }]),
+      /invalid score .* for posting id 'a'/
+    );
+  });
+}
+
 test('a duplicated posting throws rather than passing on count alone', () => {
   // Same length as the input, so a naive length check would let this through
   // while posting 'b' was silently lost.

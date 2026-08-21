@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import anthropic from '../src/scoring/anthropic.mjs';
+import anthropic, { CLIENT_OPTIONS } from '../src/scoring/anthropic.mjs';
 import { getProvider } from '../src/scoring/index.mjs';
 
 function profileFile(text = 'Graduate mechanical engineer, CFD and CAD.') {
@@ -104,6 +104,18 @@ test('checkPrecondition rejects when the optional SDK is not installed', {
       return true;
     }
   ));
+});
+
+test('the client pins retries and the timeout instead of inheriting them', () => {
+  // Left to the SDK, a rate-limited run silently issues 3x the requests it
+  // appears to, and a stuck one holds the digest open for the SDK's
+  // ten-minute default.
+  assert.equal(CLIENT_OPTIONS.maxRetries, 2, 'the retry count must be stated, not inherited');
+  assert.ok(Number.isFinite(CLIENT_OPTIONS.timeout), 'the timeout must be stated, not inherited');
+  assert.ok(
+    CLIENT_OPTIONS.timeout < 10 * 60 * 1000,
+    'the timeout must be shorter than the SDK default it exists to replace'
+  );
 });
 
 test('one request is made per posting', async () => {

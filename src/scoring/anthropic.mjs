@@ -31,9 +31,24 @@ async function loadSdk() {
   }
 }
 
+/**
+ * Client options, pinned rather than inherited.
+ *
+ * `new Anthropic()` takes the SDK's defaults, and both of them matter here:
+ * maxRetries 2 means a rate-limited run quietly issues up to three times the
+ * requests it looks like it is making, and the default 10-minute timeout
+ * means one stuck request can hold a digest open for ten minutes. Keeping the
+ * retry count but writing it down makes the 3x visible; the timeout comes
+ * down to three minutes, which is far more than a single scored posting
+ * needs and far less than a working day's patience.
+ *
+ * Exported so the values are assertable without a live client.
+ */
+export const CLIENT_OPTIONS = { maxRetries: 2, timeout: 180_000 };
+
 async function createClient() {
   const Anthropic = await loadSdk();
-  return new Anthropic();
+  return new Anthropic(CLIENT_OPTIONS);
 }
 
 /** Run `jobs` with at most `limit` in flight, preserving input order. */

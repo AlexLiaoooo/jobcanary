@@ -294,6 +294,24 @@ test('a provider that drops a posting is caught, not trusted', async () => {
   assert.equal(postings.length, 2, 'both postings survive as unscored rather than one vanishing');
 });
 
+test('a provider that tries to omit a posting is caught, not obeyed', async () => {
+  // renderDigest filters verdict 'omit' out of the digest and the CLI records
+  // every returned posting in seen.json, so obeying one would make the posting
+  // vanish for ever, unseen and unreported. No provider may omit — that is the
+  // design, and this is where it is enforced rather than trusted.
+  fakeAdapter('fake-two', [{ n: 1, title: 'A' }, { n: 2, title: 'B' }]);
+  fakeProvider('fake-omitter', async (ps) => ps.map((p, i) => ({
+    ...p, score: 5, rationale: 'r', verdict: i === 0 ? 'omit' : 'keep',
+  })));
+  const cfg = baseConfig({ sites: [{ id: 's1', company: 'Acme Dynamics', type: 'fake-two', enabled: true }] });
+  cfg.scoring.provider = 'fake-omitter';
+
+  const { postings, stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.match(stats.scoringError, /returned verdict 'omit'/);
+  assert.equal(postings.length, 2, 'both postings survive as unscored rather than one vanishing');
+  assert.ok(postings.every((p) => p.verdict === 'keep'));
+});
+
 test('every posting scoring null is a total failure, and each keeps its own reason', async () => {
   // Per-posting degradation is deliberate and tolerated (see the mixed-result
   // test below), but a provider that comes back with *nothing* scored is a
