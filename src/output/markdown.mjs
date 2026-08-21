@@ -1,11 +1,15 @@
+// An unscored posting sorts below every scored one: -1 is lower than the
+// schema's minimum of 1, so nulls fall to the bottom without a special case.
 function byScoreThenCompany(a, b) {
-  if (b.score !== a.score) return b.score - a.score;
+  const left = a.score ?? -1;
+  const right = b.score ?? -1;
+  if (right !== left) return right - left;
   return a.company.localeCompare(b.company);
 }
 
 function renderPosting(p) {
   const lines = [
-    `### [${p.score}/10] ${p.title} · ${p.company}`,
+    `### [${p.score === null ? '—' : `${p.score}/10`}] ${p.title} · ${p.company}`,
     `- **Location:** ${p.location || 'Not stated'}${p.postedAt ? ` · **Posted:** ${p.postedAt}` : ''}`,
     `- **Fit:** ${p.rationale}`,
   ];

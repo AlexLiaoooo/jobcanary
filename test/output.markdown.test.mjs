@@ -65,3 +65,30 @@ test('site errors are listed in a footer', () => {
 test('no site-error footer appears when every site succeeded', () => {
   assert.doesNotMatch(renderDigest([scored()], meta), /## Site errors/);
 });
+
+test('an unscored posting renders an em dash instead of a number', () => {
+  const md = renderDigest([scored({ score: null, rationale: 'not scored: refused' })], meta);
+  assert.match(md, /### \[—\] Graduate Design Engineer · Acme Dynamics/);
+  assert.doesNotMatch(md, /null/);
+});
+
+test('unscored postings sort below every scored one', () => {
+  const md = renderDigest([
+    scored({ id: 'a:1', score: null, company: 'Acme Dynamics' }),
+    scored({ id: 'a:2', score: 1, company: 'Zenith Motors' }),
+  ], meta);
+  assert.ok(md.indexOf('[1/10]') < md.indexOf('[—]'));
+});
+
+test('unscored postings tie-break alphabetically by company like any other', () => {
+  const md = renderDigest([
+    scored({ id: 'a:1', score: null, company: 'Zenith Motors' }),
+    scored({ id: 'a:2', score: null, company: 'Acme Dynamics' }),
+  ], meta);
+  assert.ok(md.indexOf('Acme Dynamics') < md.indexOf('Zenith Motors'));
+});
+
+test('an unscored posting still counts toward New', () => {
+  const md = renderDigest([scored({ score: null })], meta);
+  assert.match(md, /\*\*New:\*\* 1/);
+});
