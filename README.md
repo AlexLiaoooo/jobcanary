@@ -238,7 +238,24 @@ Either LLM provider scores and ranks, but never omits. A posting it could not sc
 | 1    | Unexpected error |
 | 2    | Config invalid (missing file, bad YAML, unknown adapter type, failed validation) |
 | 3    | Every configured site failed to fetch, or every site returned zero postings (a systemic break: network down, or an adapter gone stale) |
-| 4    | Scoring failed. The crawl still succeeded and the digest was still written, with the affected postings unscored — the `none` provider is pure and cannot trigger this. |
+| 4    | Scoring failed. The crawl still succeeded and the digest was still written, with the affected postings unscored — the `none` provider is pure and cannot trigger this. Also returned by `--dry`, which changes what is written, not what happened. |
+
+## Tests
+
+```bash
+npm test
+```
+
+The suite is hermetic: it stands up a local fixture server, never contacts a third-party host, needs no API key, and spawns no process other than Node itself. That is what lets CI run it on three Node versions and two operating systems without a secret.
+
+Hermetic has a cost, though — every provider test runs against a fake shaped like the implementation, and a fake cannot tell you that the request you build is a request the model will accept. So one live test exists, skipped by default and never run in CI:
+
+```bash
+JOBCANARY_LIVE=1 npm test                                     # scores three fixture postings via the API
+JOBCANARY_LIVE=1 JOBCANARY_LIVE_PROVIDER=claude-cli npm test  # ...or via your local claude
+```
+
+It scores three fixture postings against a real provider and checks the result is one usable score per posting. The API variant costs a few cents and needs `ANTHROPIC_API_KEY` and `@anthropic-ai/sdk`; the `claude-cli` variant costs nothing but spawns your `claude`. Without `JOBCANARY_LIVE=1` both are reported as skipped, which is why `npm test` shows two skipped tests.
 
 ## Sources and terms
 

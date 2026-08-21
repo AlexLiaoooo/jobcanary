@@ -34,4 +34,9 @@ jobs:
       # The suite is hermetic — it stands up a local fixture server and never
       # contacts a third-party host, so CI needs no secrets and no network
       # beyond the install step.
+      #
+      # The live scoring test is skipped unless JOBCANARY_LIVE=1, which is set
+      # nowhere in this workflow and must stay that way: CI does not spend
+      # money, and a job that depends on a third-party API is a job that goes
+      # red for reasons that have nothing to do with the commit.
       - run: npm test
