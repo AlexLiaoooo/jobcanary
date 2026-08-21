@@ -106,6 +106,37 @@ test('an unknown id in the response is ignored rather than added', async () => {
   assert.equal(out[0].id, 'a:1');
 });
 
+// The model's answer arrives as raw JSON.parse output, so every one of these
+// would otherwise reach the digest: [undefined/10], [47/10], or a score the
+// comparator cannot order at all.
+for (const [label, row] of [
+  ['a missing score', { id: 'a:1', rationale: 'r' }],
+  ['a null score', { id: 'a:1', score: null, rationale: 'r' }],
+  ['a score above the range', { id: 'a:1', score: 47, rationale: 'r' }],
+  ['a score below the range', { id: 'a:1', score: 0, rationale: 'r' }],
+  ['a fractional score', { id: 'a:1', score: 7.5, rationale: 'r' }],
+  ['a string score', { id: 'a:1', score: 'strong', rationale: 'r' }],
+  ['a numeric string score', { id: 'a:1', score: '8', rationale: 'r' }],
+  ['a missing rationale', { id: 'a:1', score: 8 }],
+  ['a non-string rationale', { id: 'a:1', score: 8, rationale: 42 }],
+]) {
+  test(`${label} comes back unscored rather than trusted`, async () => {
+    const exec = fakeExec(() => JSON.stringify({ scores: [row] }));
+    const [out] = await claudeCli.score([posting('a:1')], opts(exec));
+    assert.equal(out.score, null, `${label} must not reach the digest`);
+    assert.equal(out.verdict, 'keep');
+    assert.match(out.rationale, /not scored: the model returned an invalid score/);
+  });
+}
+
+test('a valid score at each end of the range is accepted', async () => {
+  for (const score of [1, 10]) {
+    const exec = fakeExec(() => JSON.stringify({ scores: [{ id: 'a:1', score, rationale: 'r' }] }));
+    const [out] = await claudeCli.score([posting('a:1')], opts(exec));
+    assert.equal(out.score, score);
+  }
+});
+
 test('postings are batched ten to an invocation', async () => {
   const ids = Array.from({ length: 25 }, (_, i) => `a:${i}`);
   const exec = fakeExec((prompt) => {

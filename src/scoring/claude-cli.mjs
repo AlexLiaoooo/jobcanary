@@ -78,6 +78,14 @@ function parseScores(stdout) {
   return data.scores;
 }
 
+/** The shape a scored row must have before it is allowed onto a posting. */
+function isValidRow(row) {
+  return Number.isInteger(row.score)
+    && row.score >= 1
+    && row.score <= 10
+    && typeof row.rationale === 'string';
+}
+
 function buildBatchPrompt(prefix, batch) {
   const blocks = batch.map((p) => `<posting id="${p.id}">\n${buildPostingBlock(p)}\n</posting>`);
   return [
@@ -140,6 +148,14 @@ export default {
       const row = scored.get(posting.id);
       if (!row) return unscored(posting, 'the model returned no score for this posting');
       if (row.error) return unscored(posting, row.error);
+      // The anthropic provider gets this guarantee from the server-side schema.
+      // Here the row came straight out of JSON.parse, so nothing has checked it:
+      // a missing score renders as [undefined/10], 47 renders as [47/10], and
+      // "strong" makes the digest's comparator return NaN and the whole
+      // ordering arbitrary. Nothing downstream would catch any of them.
+      if (!isValidRow(row)) {
+        return unscored(posting, `the model returned an invalid score (${JSON.stringify(row.score)})`);
+      }
       return { ...posting, score: row.score, rationale: row.rationale, verdict: 'keep' };
     });
   },
