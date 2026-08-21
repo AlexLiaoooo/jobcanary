@@ -4,14 +4,20 @@ import { SCORE_SCHEMA, buildPostingBlock, buildPrefixFromSources, unscored } fro
 const SDK = '@anthropic-ai/sdk';
 
 /**
- * The response cap, not a spend commitment: unused tokens cost nothing, and
- * every token this does not allow is a truncated response that has already
- * been paid for. Thinking tokens count against it, and this runs adaptive
- * thinking at effort `high` by default, so the old 1024 left very little room
- * for the answer itself — and a systematic truncation would leave every
- * posting unscored after a full crawl.
+ * The response cap, not a spend commitment. An unused ceiling costs nothing;
+ * a ceiling that is hit costs an entire wasted request, because the thinking
+ * tokens spent on the way to the truncation have already been billed. There
+ * is therefore no reason to be frugal here and every reason not to be.
+ *
+ * Thinking tokens count against this, and this provider runs adaptive
+ * thinking at effort `high` by default — configurable up to `max` — so the
+ * old 1024 left almost nothing for the answer itself, and a truncation that
+ * happened systematically would leave every posting unscored after a full
+ * crawl had been paid for. 16000 is the recommended default for a
+ * non-streaming request: far more headroom than one scored posting needs,
+ * which is the point.
  */
-const MAX_TOKENS = 4096;
+const MAX_TOKENS = 16_000;
 
 /**
  * The SDK is an optional peer dependency: someone scoring by keyword should

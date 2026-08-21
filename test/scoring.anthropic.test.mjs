@@ -190,10 +190,12 @@ test('a truncated response is named as truncation, not as a schema mismatch', as
 
 test('max_tokens leaves room for thinking as well as the answer', async () => {
   // Thinking tokens count against this cap and the default effort is high, so
-  // a cap sized for the JSON object alone truncates systematically.
+  // a cap sized for the JSON object alone truncates systematically — and a
+  // truncated response is a request billed for its thinking and thrown away.
+  // 16000 is the recommended default for a non-streaming request.
   const client = fakeClient(() => ok(5));
   await scoreOnly([posting()], opts(client));
-  assert.ok(client.calls[0].max_tokens >= 4096, `max_tokens was ${client.calls[0].max_tokens}`);
+  assert.ok(client.calls[0].max_tokens >= 16_000, `max_tokens was ${client.calls[0].max_tokens}`);
 });
 
 test('a refusal degrades that posting only', async () => {
