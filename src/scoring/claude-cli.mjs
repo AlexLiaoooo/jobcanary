@@ -144,14 +144,20 @@ export default {
    * silently taking another posting's score.
    */
   async score(postings, opts = {}) {
-    if (postings.length === 0) return [];
+    if (postings.length === 0) return { scored: [], usage: { requests: 0 } };
 
     const exec = opts.exec ?? runClaude;
     const prefix = buildPrefixFromSources({ rubric: opts.rubric, profile: opts.profile });
 
+    // Invocations, not postings. No cache figures: what a `claude` process
+    // does with the prompt is not observable from here, so those are left
+    // unreported rather than reported as zero.
+    const usage = { requests: 0 };
+
     const scored = new Map();
     for (let i = 0; i < postings.length; i += BATCH) {
       const batch = postings.slice(i, i + BATCH);
+      usage.requests += 1;
       try {
         for (const row of parseScores(await exec(buildBatchPrompt(prefix, batch)))) {
           scored.set(row.id, row);
@@ -162,7 +168,7 @@ export default {
       }
     }
 
-    return postings.map((posting) => {
+    const results = postings.map((posting) => {
       const row = scored.get(posting.id);
       if (!row) return unscored(posting, 'the model returned no score for this posting');
       if (row.error) return unscored(posting, row.error);
@@ -176,5 +182,7 @@ export default {
       }
       return { ...posting, score: row.score, rationale: row.rationale, verdict: 'keep' };
     });
+
+    return { scored: results, usage };
   },
 };

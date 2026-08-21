@@ -3,7 +3,7 @@ import { getProvider } from './scoring/index.mjs';
 import { applyRules } from './rules.mjs';
 import { isSeen } from './dedupe.mjs';
 import { createHttp } from './http.mjs';
-import { assertScoreContract } from './scoring/contract.mjs';
+import { assertScoreContract, unwrapScoreResult } from './scoring/contract.mjs';
 import { unscored } from './scoring/prompt.mjs';
 
 /**
@@ -22,8 +22,9 @@ import { unscored } from './scoring/prompt.mjs';
  * @param {{seen?: object, browser?: boolean, http?: Function, logger?: object}} [opts]
  * @returns {Promise<{postings: object[], stats: {scanned: number, excluded: number,
  *   excludedIds: string[], alreadySeen: number, kept: number, unscored: number,
- *   enrichmentFetches: number, siteErrors: {site: string, error: string}[],
- *   scoringError: string|null}}>}
+ *   enrichmentFetches: number, scoringRequests: number,
+ *   cacheReadTokens: number|null, cacheCreationTokens: number|null,
+ *   siteErrors: {site: string, error: string}[], scoringError: string|null}}>}
  */
 export async function run(config, { seen = {}, browser = false, http, logger = console } = {}) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
@@ -155,9 +156,10 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   // A scoring failure must not discard the crawl. Fall back to unscored
   // postings and report the reason; the CLI still writes a digest and exits 4.
   let postings;
+  let usage = null;
   let scoringError = null;
   try {
-    postings = await provider.score(enriched, scoringOpts);
+    ({ scored: postings, usage } = unwrapScoreResult(await provider.score(enriched, scoringOpts)));
     assertScoreContract(enriched, postings);
   } catch (err) {
     scoringError = err.message;
@@ -185,6 +187,15 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
       // postings quietly carry [—]. The CLI puts this on the summary line.
       unscored: postings.filter((p) => p.score === null).length,
       enrichmentFetches,
+      // What the scoring cost, as far as the provider can see it. The cache
+      // figures are null rather than 0 when a provider cannot observe them
+      // (claude-cli cannot), because "no caching happened" and "nobody
+      // counted" are different facts and only the first one is worth acting
+      // on: caching is the reason one request per posting is affordable, and
+      // a cache that silently stops working shows up only on the bill.
+      scoringRequests: usage?.requests ?? 0,
+      cacheReadTokens: usage?.cacheReadTokens ?? null,
+      cacheCreationTokens: usage?.cacheCreationTokens ?? null,
       siteErrors,
       scoringError,
     },

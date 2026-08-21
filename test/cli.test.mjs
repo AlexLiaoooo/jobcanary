@@ -340,6 +340,18 @@ test('a fully scored run records every posting and reports unscored=0', async ()
   assert.match(r.stdout, /unscored=0 scoring=ok/);
   const seen = JSON.parse(readFileSync(join(out, 'seen.json'), 'utf8'));
   assert.deepEqual(Object.keys(seen).sort(), ['vantor:R-1001', 'vantor:R-1002']);
+
+  // What the scoring cost. claude-cli cannot see inside the process it spawns,
+  // so it says so rather than printing a zero it never measured.
+  assert.match(r.stdout, /^scoringRequests=1 cache=unreported$/m);
+});
+
+test('a run that scores nothing prints no cost line at all', async () => {
+  // The `none` provider issues no requests; a line of zeroes would be noise.
+  const { cfg } = workspace();
+  const r = await runCli(['run', '--config', cfg]);
+  assert.equal(r.code, 0);
+  assert.doesNotMatch(r.stdout, /scoringRequests=/);
 });
 
 // The three precondition failures the spec requires to be caught before any

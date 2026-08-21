@@ -330,6 +330,48 @@ test('stats.unscored counts the postings the provider could not judge', async ()
   assert.equal(stats.scoringError, null, 'a partial failure is still not a run failure');
 });
 
+test('a provider that reports usage has it carried into stats', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  fakeProvider('fake-with-usage', async (ps) => ({
+    scored: ps.map((p) => ({ ...p, score: 5, rationale: 'r', verdict: 'keep' })),
+    usage: { requests: 4, cacheReadTokens: 2800, cacheCreationTokens: 700 },
+  }));
+  const cfg = baseConfig();
+  cfg.scoring.provider = 'fake-with-usage';
+
+  const { stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(stats.scoringRequests, 4);
+  assert.equal(stats.cacheReadTokens, 2800);
+  assert.equal(stats.cacheCreationTokens, 700);
+});
+
+test('a provider that cannot observe caching reports null, not zero', async () => {
+  // "No caching happened" and "nobody counted" are different facts, and only
+  // the first one is worth acting on.
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  fakeProvider('fake-requests-only', async (ps) => ({
+    scored: ps.map((p) => ({ ...p, score: 5, rationale: 'r', verdict: 'keep' })),
+    usage: { requests: 1 },
+  }));
+  const cfg = baseConfig();
+  cfg.scoring.provider = 'fake-requests-only';
+
+  const { stats } = await run(cfg, { seen: {}, logger: quietLogger });
+  assert.equal(stats.scoringRequests, 1);
+  assert.equal(stats.cacheReadTokens, null);
+  assert.equal(stats.cacheCreationTokens, null);
+});
+
+test('a provider that returns a bare array still works and reports no requests', async () => {
+  // `none` returns an array and always will; the usage-carrying shape is
+  // optional, not a new obligation on every provider.
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const { postings, stats } = await run(baseConfig(), { seen: {}, logger: quietLogger });
+  assert.equal(postings.length, 1);
+  assert.equal(stats.scoringRequests, 0);
+  assert.equal(stats.cacheReadTokens, null);
+});
+
 test('stats.unscored is 0 when everything scored', async () => {
   fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
   const { stats } = await run(baseConfig(), { seen: {}, logger: quietLogger });

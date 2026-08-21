@@ -200,6 +200,20 @@ Only these three adapters exist today. A larger adapter fleet (static career pag
 - **`anthropic`** — scores each posting in one cached request against the Anthropic API directly. Needs `ANTHROPIC_API_KEY` in the environment and the optional peer dependency installed (`npm install @anthropic-ai/sdk` — see [Install](#install)).
 - **`claude-cli`** — free if you already have Claude Code installed and are logged in: it batches ten postings per `claude -p` invocation and matches each result back to its posting by the id the model echoes, rather than by position. Needs `claude` on `PATH` — set `JOBCANARY_CLAUDE_BIN` if it lives somewhere `PATH` doesn't reach. A batch that fails to run or to parse degrades just its own postings to unscored, so one flaky invocation does not cost the whole run's results. But if *nothing* comes back scored, that is systemic rather than a one-off hiccup, and is treated as a run-level scoring failure: see [Exit codes](#exit-codes).
 
+### Prompt caching, and how to tell whether it is working
+
+The `anthropic` provider sends one request per posting. That is a correctness decision — batching N postings into one request adds a pairing step whose failure mode is attaching the wrong rationale to the wrong job — and it is affordable only because the rubric and your profile form a byte-identical prefix on every request, marked for prompt caching.
+
+**Caching only engages if that prefix clears the model's minimum cacheable length.** Below it, the cache marker is ignored silently: no error, no warning, nothing in the response to notice — only a larger bill. The minimum is per model and is not monotonic across generations: 512 tokens on Claude Opus 5, 1024 on Claude Sonnet 5 and Opus 4.8, 2048 on Opus 4.7, and higher still on some older models. The built-in rubric plus [`examples/profile.md`](examples/profile.md) is roughly 3,000 characters — very approximately 750 tokens — which clears Claude Opus 5's minimum but not by a wide margin, and a two-line profile would fall under it. If you write a short profile, or point `scoring.model` at a model with a higher minimum, expect caching not to engage.
+
+So the run reports it. When a run issues any scoring requests, the summary prints a second line:
+
+```
+scoringRequests=40 cacheReadTokens=18240 cacheCreationTokens=760
+```
+
+`cacheReadTokens=0` across a run of more than one posting means caching never engaged, and jobcanary says so in a note under the line. The `claude-cli` provider prints `cache=unreported` instead: what a `claude` process does with the prompt is not visible from here, and reporting a zero nobody measured would be worse than reporting nothing. `stats.scoringRequests`, `stats.cacheReadTokens` and `stats.cacheCreationTokens` carry the same numbers to library callers and into the JSON digest, with the two cache figures `null` when the provider cannot observe them.
+
 ### Everything a provider needs is checked before the first site is fetched
 
 `jobcanary run` proves the scoring provider can work before it spends anything on a crawl. For `anthropic` that means `ANTHROPIC_API_KEY` in the environment and `@anthropic-ai/sdk` importable; for `claude-cli` it means the `claude` binary actually running (it is asked for its `--version`); for both it means the `profile` file — and the `scoring.rubric` file if you set one — being readable. Any of them missing stops the run with a config error and **exit 2**, before a single request goes to a job board.

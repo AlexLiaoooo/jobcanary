@@ -1,4 +1,26 @@
 /**
+ * Normalise what a provider returned into `{ scored, usage }`.
+ *
+ * A provider returns `Scored[]` — the contract asserted below — or, when it
+ * has something to say about what the scoring cost, `{ scored, usage }`. The
+ * second form exists because the cost is otherwise invisible: prompt caching
+ * is the whole economic justification for one request per posting, a cache
+ * that stops working produces no error at all, and the only symptom is a
+ * larger bill. `usage` may carry `requests`, `cacheReadTokens` and
+ * `cacheCreationTokens`; a provider that cannot observe one leaves it out,
+ * which the pipeline reports as null rather than as a zero it did not measure.
+ *
+ * Anything else is passed straight through, so `assertScoreContract` produces
+ * the error rather than this function.
+ */
+export function unwrapScoreResult(raw) {
+  if (!Array.isArray(raw) && raw && typeof raw === 'object' && Array.isArray(raw.scored)) {
+    return { scored: raw.scored, usage: raw.usage ?? null };
+  }
+  return { scored: raw, usage: null };
+}
+
+/**
  * Enforce the scoring provider contract: exactly one result per input
  * posting, matched by id.
  *

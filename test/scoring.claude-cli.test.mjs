@@ -70,6 +70,13 @@ const scoresFor = (ids, score = 6) =>
   JSON.stringify({ scores: ids.map((id) => ({ id, score, rationale: 'because' })) });
 const opts = (exec, over = {}) => ({ exec, profile: profileFile(), rubric: null, ...over });
 
+/**
+ * score() returns `{ scored, usage }`. Most tests here are about the scoring,
+ * so they take the postings; the shape itself is asserted on score() directly
+ * in its own test below.
+ */
+const scoreOnly = async (postings, o) => (await claudeCli.score(postings, o)).scored;
+
 test('registry resolves the claude-cli provider', () => {
   assert.equal(getProvider('claude-cli').id, 'claude-cli');
 });
@@ -82,7 +89,7 @@ test('scores are matched by echoed id, not by position', async () => {
       { id: 'a:1', score: 3, rationale: 'first posting' },
     ],
   }));
-  const out = await claudeCli.score([posting('a:1'), posting('a:2')], opts(exec));
+  const out = await scoreOnly([posting('a:1'), posting('a:2')], opts(exec));
   const byId = Object.fromEntries(out.map((p) => [p.id, p]));
   assert.equal(byId['a:1'].score, 3);
   assert.equal(byId['a:1'].rationale, 'first posting');
@@ -91,7 +98,7 @@ test('scores are matched by echoed id, not by position', async () => {
 
 test('a posting missing from the response comes back unscored, not dropped', async () => {
   const exec = fakeExec(() => scoresFor(['a:1']));
-  const out = await claudeCli.score([posting('a:1'), posting('a:2')], opts(exec));
+  const out = await scoreOnly([posting('a:1'), posting('a:2')], opts(exec));
   assert.equal(out.length, 2);
   assert.equal(out.find((p) => p.id === 'a:2').score, null);
   assert.match(out.find((p) => p.id === 'a:2').rationale, /not scored/);
@@ -101,7 +108,7 @@ test('an unknown id in the response is ignored rather than added', async () => {
   const exec = fakeExec(() => JSON.stringify({
     scores: [{ id: 'a:1', score: 5, rationale: 'r' }, { id: 'ghost', score: 9, rationale: 'r' }],
   }));
-  const out = await claudeCli.score([posting('a:1')], opts(exec));
+  const out = await scoreOnly([posting('a:1')], opts(exec));
   assert.equal(out.length, 1);
   assert.equal(out[0].id, 'a:1');
 });
@@ -122,7 +129,7 @@ for (const [label, row] of [
 ]) {
   test(`${label} comes back unscored rather than trusted`, async () => {
     const exec = fakeExec(() => JSON.stringify({ scores: [row] }));
-    const [out] = await claudeCli.score([posting('a:1')], opts(exec));
+    const [out] = await scoreOnly([posting('a:1')], opts(exec));
     assert.equal(out.score, null, `${label} must not reach the digest`);
     assert.equal(out.verdict, 'keep');
     assert.match(out.rationale, /not scored: the model returned an invalid score/);
@@ -132,7 +139,7 @@ for (const [label, row] of [
 test('a valid score at each end of the range is accepted', async () => {
   for (const score of [1, 10]) {
     const exec = fakeExec(() => JSON.stringify({ scores: [{ id: 'a:1', score, rationale: 'r' }] }));
-    const [out] = await claudeCli.score([posting('a:1')], opts(exec));
+    const [out] = await scoreOnly([posting('a:1')], opts(exec));
     assert.equal(out.score, score);
   }
 });
@@ -143,7 +150,7 @@ test('postings are batched ten to an invocation', async () => {
     const inBatch = ids.filter((id) => prompt.includes(id));
     return scoresFor(inBatch);
   });
-  const out = await claudeCli.score(ids.map((id) => posting(id)), opts(exec));
+  const out = await scoreOnly(ids.map((id) => posting(id)), opts(exec));
   assert.equal(exec.calls.length, 3, '25 postings should take 3 invocations of 10');
   assert.equal(out.length, 25);
 });
@@ -151,7 +158,7 @@ test('postings are batched ten to an invocation', async () => {
 test('unparseable output degrades that batch only', async () => {
   const exec = fakeExec((_p, i) => (i === 0 ? 'not json at all' : scoresFor(['a:10'])));
   const input = [...Array.from({ length: 10 }, (_, i) => posting(`a:${i}`)), posting('a:10')];
-  const out = await claudeCli.score(input, opts(exec));
+  const out = await scoreOnly(input, opts(exec));
   assert.equal(out.length, 11);
   assert.equal(out.find((p) => p.id === 'a:0').score, null);
   assert.equal(out.find((p) => p.id === 'a:10').score, 6);
@@ -160,34 +167,51 @@ test('unparseable output degrades that batch only', async () => {
 test('a thrown invocation degrades that batch only', async () => {
   const exec = fakeExec((_p, i) => { if (i === 0) throw new Error('claude not found'); return scoresFor(['a:10']); });
   const input = [...Array.from({ length: 10 }, (_, i) => posting(`a:${i}`)), posting('a:10')];
-  const out = await claudeCli.score(input, opts(exec));
+  const out = await scoreOnly(input, opts(exec));
   assert.equal(out.length, 11);
   assert.match(out.find((p) => p.id === 'a:0').rationale, /claude not found/);
 });
 
 test('the prompt carries the rubric, the profile and each posting id', async () => {
   const exec = fakeExec(() => scoresFor(['a:1']));
-  await claudeCli.score([posting('a:1')], opts(exec));
+  await scoreOnly([posting('a:1')], opts(exec));
   assert.match(exec.calls[0], /Graduate mechanical engineer/);
   assert.match(exec.calls[0], /a:1/);
 });
 
 test('output wrapped in a fenced code block is still parsed', async () => {
   const exec = fakeExec(() => '```json\n' + scoresFor(['a:1'], 8) + '\n```');
-  const out = await claudeCli.score([posting('a:1')], opts(exec));
+  const out = await scoreOnly([posting('a:1')], opts(exec));
   assert.equal(out[0].score, 8);
 });
 
 test('one result comes back per posting, in input order', async () => {
   const exec = fakeExec(() => scoresFor(['a:1', 'a:2', 'a:3']));
-  const out = await claudeCli.score([posting('a:1'), posting('a:2'), posting('a:3')], opts(exec));
+  const out = await scoreOnly([posting('a:1'), posting('a:2'), posting('a:3')], opts(exec));
   assert.deepEqual(out.map((p) => p.id), ['a:1', 'a:2', 'a:3']);
 });
 
 test('an empty posting list makes no invocations', async () => {
   const exec = fakeExec(() => scoresFor([]));
-  assert.deepEqual(await claudeCli.score([], opts(exec)), []);
+  assert.deepEqual(await scoreOnly([], opts(exec)), []);
   assert.equal(exec.calls.length, 0);
+});
+
+test('score reports one request per invocation, and no cache figures', async () => {
+  // 25 postings is three invocations of ten, and what the `claude` process
+  // does with the prompt is not observable from here — so the cache fields are
+  // absent rather than reported as a zero nobody measured.
+  const ids = Array.from({ length: 25 }, (_, i) => `a:${i}`);
+  const exec = fakeExec((prompt) => scoresFor(ids.filter((id) => prompt.includes(id))));
+  const res = await claudeCli.score(ids.map((id) => posting(id)), opts(exec));
+  assert.equal(res.scored.length, 25);
+  assert.deepEqual(res.usage, { requests: 3 });
+});
+
+test('a batch that failed still counts as a request made', async () => {
+  const exec = fakeExec(() => { throw new Error('claude not found'); });
+  const res = await claudeCli.score([posting('a:1')], opts(exec));
+  assert.equal(res.usage.requests, 1);
 });
 
 // --- the default runner, executed for real ---------------------------------
@@ -215,7 +239,7 @@ test('the default runner writes the prompt to the child on stdin', async () => {
   const bin = stubClaude(ECHO_STUB);
   // No opts.exec: this goes through runClaude and a real spawn.
   const out = await withStubBin(bin, () =>
-    claudeCli.score([posting('a:1'), posting('a:2')], { profile: profileFile(), rubric: null }));
+    scoreOnly([posting('a:1'), posting('a:2')], { profile: profileFile(), rubric: null }));
 
   // The stub knows the ids and the profile marker only by reading its stdin,
   // so a score of 7 on both is proof the whole prompt round-tripped.
@@ -269,7 +293,7 @@ test('checkPrecondition rejects an unreadable profile without spawning anything'
 test('the default runner reports a non-zero exit rather than hanging', async () => {
   const bin = stubClaude("process.stderr.write('stub refused'); process.exit(3);");
   const out = await withStubBin(bin, () =>
-    claudeCli.score([posting('a:1')], { profile: profileFile(), rubric: null }));
+    scoreOnly([posting('a:1')], { profile: profileFile(), rubric: null }));
   assert.equal(out[0].score, null);
   assert.match(out[0].rationale, /claude exited 3/);
   assert.match(out[0].rationale, /stub refused/);

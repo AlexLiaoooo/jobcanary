@@ -1,9 +1,34 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { assertScoreContract } from '../src/scoring/contract.mjs';
+import { assertScoreContract, unwrapScoreResult } from '../src/scoring/contract.mjs';
 
 const p = (id) => ({ id, title: 't', company: 'c' });
 const s = (id) => ({ id, title: 't', company: 'c', score: 5, rationale: 'r', verdict: 'keep' });
+
+test('a bare array is passed through with no usage', () => {
+  const arr = [s('a')];
+  assert.deepEqual(unwrapScoreResult(arr), { scored: arr, usage: null });
+});
+
+test('a {scored, usage} result is unwrapped', () => {
+  const arr = [s('a')];
+  const usage = { requests: 1, cacheReadTokens: 700, cacheCreationTokens: 0 };
+  assert.deepEqual(unwrapScoreResult({ scored: arr, usage }), { scored: arr, usage });
+});
+
+test('a {scored} result with no usage reports null usage', () => {
+  assert.deepEqual(unwrapScoreResult({ scored: [] }), { scored: [], usage: null });
+});
+
+test('anything else is passed through, so the contract check produces the error', () => {
+  // Not this function's job to explain a malformed return — that message
+  // belongs to assertScoreContract, which names the actual problem.
+  assert.deepEqual(unwrapScoreResult(undefined), { scored: undefined, usage: null });
+  assert.throws(
+    () => assertScoreContract([p('a')], unwrapScoreResult({ nonsense: true }).scored),
+    /did not return an array/
+  );
+});
 
 test('a matching set of results passes', () => {
   assert.doesNotThrow(() => assertScoreContract([p('a'), p('b')], [s('a'), s('b')]));

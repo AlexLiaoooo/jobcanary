@@ -78,12 +78,23 @@ export default {
   },
 
   async score(postings, opts = {}) {
-    if (postings.length === 0) return [];
+    if (postings.length === 0) {
+      return { scored: [], usage: { requests: 0, cacheReadTokens: 0, cacheCreationTokens: 0 } };
+    }
 
     const client = opts.client ?? (await createClient());
     const prefix = buildPrefixFromSources({ rubric: opts.rubric, profile: opts.profile });
 
+    // Caching is what makes one request per posting economical rather than
+    // wasteful, and a prefix under the model's minimum cacheable length is
+    // ignored in silence — no error, no warning, just a bill. Report the
+    // numbers so the run can say whether the cache engaged at all.
+    const usage = { requests: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+
     const jobs = postings.map((posting) => async () => {
+      // Counted before the call, so a request that fails still counts as one
+      // made. Retries inside the SDK are not visible here and are not counted.
+      usage.requests += 1;
       try {
         const res = await client.messages.parse({
           model: opts.model,
@@ -96,6 +107,12 @@ export default {
             effort: opts.effort,
           },
         });
+
+        // Recorded before any of the failure branches below: a refused or
+        // truncated response was still billed, and still says whether the
+        // cached prefix was read.
+        usage.cacheReadTokens += res.usage?.cache_read_input_tokens ?? 0;
+        usage.cacheCreationTokens += res.usage?.cache_creation_input_tokens ?? 0;
 
         // A refusal is a 200 with no parsed output — check stop_reason before
         // reading content, and degrade this posting rather than the run.
@@ -125,6 +142,6 @@ export default {
       }
     });
 
-    return pool(jobs, opts.concurrency ?? 5);
+    return { scored: await pool(jobs, opts.concurrency ?? 5), usage };
   },
 };

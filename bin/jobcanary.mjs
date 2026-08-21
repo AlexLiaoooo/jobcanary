@@ -108,6 +108,24 @@ async function main() {
     `unscored=${stats.unscored} scoring=${stats.scoringError ? 'failed' : 'ok'}`
   );
 
+  // What the scoring cost, on its own line and only when there was a cost.
+  // Prompt caching is the reason one request per posting is affordable, and a
+  // prefix under the model's minimum cacheable length is ignored in silence —
+  // so a cache that never engages is invisible except on the bill. If a number
+  // nobody can see is a number nobody can act on, that goes double for money.
+  if (stats.scoringRequests > 0) {
+    const cache = stats.cacheReadTokens === null
+      ? 'cache=unreported'
+      : `cacheReadTokens=${stats.cacheReadTokens} cacheCreationTokens=${stats.cacheCreationTokens}`;
+    console.log(`scoringRequests=${stats.scoringRequests} ${cache}`);
+    if (stats.cacheReadTokens === 0 && stats.scoringRequests > 1) {
+      console.log(
+        'note: nothing was read from the prompt cache across several requests — the cached ' +
+        "prefix is probably shorter than the model's minimum cacheable length (see the README)"
+      );
+    }
+  }
+
   if (values.dry) {
     console.log('--dry: nothing written');
     return 0;
