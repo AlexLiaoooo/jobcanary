@@ -46,5 +46,11 @@
   },
   "dependencies": {
     "yaml": "^2.5.0"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/sdk": ">=0.30.0"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/sdk": { "optional": true }
   }
 }

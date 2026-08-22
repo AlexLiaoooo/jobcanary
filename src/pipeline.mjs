@@ -3,6 +3,8 @@ import { getProvider } from './scoring/index.mjs';
 import { applyRules } from './rules.mjs';
 import { isSeen } from './dedupe.mjs';
 import { createHttp } from './http.mjs';
+import { assertScoreContract, unwrapScoreResult } from './scoring/contract.mjs';
+import { unscored } from './scoring/prompt.mjs';
 
 /**
  * Run the pipeline over a config.
@@ -11,25 +13,42 @@ import { createHttp } from './http.mjs';
  * The CLI owns reading and writing state, which keeps this function testable
  * without a filesystem and makes it reusable from a library consumer.
  *
- * `stats.excludedIds` and `stats.enrichmentFetches` are reported so a caller
- * can see what the rules dropped and what enrichment cost. Neither is state:
+ * `stats.excludedIds`, `stats.enrichmentFetches` and `stats.unscored` are
+ * reported so a caller can see what the rules dropped, what enrichment cost,
+ * and how much of the run the scorer could not judge. None of them is state:
  * excluded ids are deliberately not persisted (see the rule loop below).
  *
  * @param {object} config
  * @param {{seen?: object, browser?: boolean, http?: Function, logger?: object}} [opts]
  * @returns {Promise<{postings: object[], stats: {scanned: number, excluded: number,
- *   excludedIds: string[], alreadySeen: number, kept: number, enrichmentFetches: number,
- *   siteErrors: {site: string, error: string}[]}}>}
+ *   excludedIds: string[], alreadySeen: number, kept: number, unscored: number,
+ *   enrichmentFetches: number, scoringRequests: number,
+ *   cacheReadTokens: number|null, cacheCreationTokens: number|null,
+ *   siteErrors: {site: string, error: string}[], scoringError: string|null}}>}
  */
 export async function run(config, { seen = {}, browser = false, http, logger = console } = {}) {
   const ctx = { http: http ?? createHttp({}), logger, timeoutMs: 25_000 };
 
-  // Resolve the scoring provider before any network work. A provider the
-  // config blesses but the registry does not know about (today: anthropic and
-  // claude-cli) must fail on the first second of the run, not after every site
-  // has been crawled and every enrichment request paid for. This mirrors
-  // getAdapter below, which already fails fast in the `active` filter.
+  // Resolve the scoring provider before any network work. config.mjs's
+  // PROVIDERS list and this registry are maintained separately, so a provider
+  // id that passes config validation but was never registered here must fail
+  // in the first second of the run, not after every site has been crawled and
+  // every enrichment request paid for. This mirrors getAdapter below, which
+  // already fails fast in the `active` filter.
   const provider = getProvider(config.scoring.provider);
+
+  // A provider's precondition (an API key, an installed SDK, a binary that
+  // runs, readable prompt sources) is checked here, before a single site is
+  // fetched — discovering any of them after paying for a full crawl is the
+  // failure this ordering exists to prevent.
+  //
+  // Awaited: un-awaited, a precondition could not import() a module or probe a
+  // binary, which is exactly why two of the three failures it exists to
+  // prevent used to surface as an exit 4 after the crawl instead. It gets the
+  // same options object score() does, profile included, so a provider never
+  // has to check one thing here and a different thing there.
+  const scoringOpts = { ...config.scoring, profile: config.profile };
+  await provider.checkPrecondition?.(scoringOpts);
 
   const active = config.sites.filter((site) => {
     if (site.enabled === false) return false;
@@ -134,7 +153,34 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
   }
 
   // --- score ---
-  const postings = await provider.score(enriched, { ...config.scoring, profile: config.profile });
+  // A scoring failure must not discard the crawl. Fall back to unscored
+  // postings and report the reason; the CLI still writes a digest and exits 4.
+  let postings;
+  let usage = null;
+  let scoringError = null;
+  try {
+    ({ scored: postings, usage } = unwrapScoreResult(await provider.score(enriched, scoringOpts)));
+    assertScoreContract(enriched, postings);
+  } catch (err) {
+    scoringError = err.message;
+    postings = enriched.map((p) => unscored(p, err.message));
+  }
+
+  // Per-posting degradation is deliberate, but if NOTHING scored, the cause is
+  // systemic (a missing binary, a revoked key, no network) and a silent exit 0
+  // with a digest full of [—] would hide it. Set the flag without re-mapping
+  // the postings, so each one keeps the specific reason it already carries.
+  if (scoringError === null && enriched.length > 0 && postings.every((p) => p.score === null)) {
+    // Not postings[0]: the contract guarantees one result per posting, never
+    // that they come back in input order, and a provider is free to return
+    // them in whatever order it finished. Take the first one that actually
+    // carries a reason. The "not scored: " prefix is stripped because this
+    // message adds its own — the two together read "no posting could be
+    // scored — first reason: not scored: <reason>".
+    const reason = postings.find((p) => typeof p.rationale === 'string' && p.rationale.trim() !== '');
+    const detail = reason ? reason.rationale.replace(/^not scored:\s*/, '') : 'no reason given';
+    scoringError = `no posting could be scored — first reason: ${detail}`;
+  }
 
   return {
     postings,
@@ -144,8 +190,22 @@ export async function run(config, { seen = {}, browser = false, http, logger = c
       excludedIds,
       alreadySeen,
       kept: postings.length,
+      // Reported because a partial scoring failure is otherwise completely
+      // silent: the run exits 0, says scoring=ok, and three of the ten
+      // postings quietly carry [—]. The CLI puts this on the summary line.
+      unscored: postings.filter((p) => p.score === null).length,
       enrichmentFetches,
+      // What the scoring cost, as far as the provider can see it. The cache
+      // figures are null rather than 0 when a provider cannot observe them
+      // (claude-cli cannot), because "no caching happened" and "nobody
+      // counted" are different facts and only the first one is worth acting
+      // on: caching is the reason one request per posting is affordable, and
+      // a cache that silently stops working shows up only on the bill.
+      scoringRequests: usage?.requests ?? 0,
+      cacheReadTokens: usage?.cacheReadTokens ?? null,
+      cacheCreationTokens: usage?.cacheCreationTokens ?? null,
       siteErrors,
+      scoringError,
     },
   };
 }

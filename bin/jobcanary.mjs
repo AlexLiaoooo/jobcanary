@@ -96,14 +96,45 @@ async function main() {
 
   // enrichmentFetches is in the summary because it is the run's hidden cost:
   // a posting excluded on its description is re-fetched every run by design,
-  // and a number nobody can see is a number nobody can act on.
+  // and a number nobody can see is a number nobody can act on. scoring is in
+  // the summary too, so a failure that will end in exit 4 is visible on the
+  // same line as the rest of the run's outcome, not only in the exit code.
+  // unscored= is there for the same reason: a run where three of ten postings
+  // were rate-limited exits 0 and says scoring=ok, and without this number the
+  // only trace is three [—] headings in the digest.
   console.log(
     `scanned=${stats.scanned} seen=${stats.alreadySeen} excluded=${stats.excluded} ` +
-    `kept=${stats.kept} enrichmentFetches=${stats.enrichmentFetches} siteErrors=${stats.siteErrors.length}`
+    `kept=${stats.kept} enrichmentFetches=${stats.enrichmentFetches} siteErrors=${stats.siteErrors.length} ` +
+    `unscored=${stats.unscored} scoring=${stats.scoringError ? 'failed' : 'ok'}`
   );
+
+  // What the scoring cost, on its own line and only when there was a cost.
+  // Prompt caching is the reason one request per posting is affordable, and a
+  // prefix under the model's minimum cacheable length is ignored in silence —
+  // so a cache that never engages is invisible except on the bill. If a number
+  // nobody can see is a number nobody can act on, that goes double for money.
+  if (stats.scoringRequests > 0) {
+    const cache = stats.cacheReadTokens === null
+      ? 'cache=unreported'
+      : `cacheReadTokens=${stats.cacheReadTokens} cacheCreationTokens=${stats.cacheCreationTokens}`;
+    console.log(`scoringRequests=${stats.scoringRequests} ${cache}`);
+    if (stats.cacheReadTokens === 0 && stats.scoringRequests > 1) {
+      console.log(
+        'note: nothing was read from the prompt cache across several requests — the cached ' +
+        "prefix is probably shorter than the model's minimum cacheable length (see the README)"
+      );
+    }
+  }
 
   if (values.dry) {
     console.log('--dry: nothing written');
+    // A dry run that could not score still failed at scoring, and reporting
+    // exit 0 would tell a script the opposite. --dry changes what is written,
+    // not what happened.
+    if (stats.scoringError) {
+      console.error(`scoring failed: ${stats.scoringError}`);
+      return 4;
+    }
     return 0;
   }
 
@@ -129,9 +160,26 @@ async function main() {
     }
   }
 
+  // Only postings that were actually scored are marked seen. A posting that
+  // came back unscored — one rate-limited request, one batch that would not
+  // parse — appeared once, unranked, and recording it would retire it for
+  // ever: it would never be offered again, and the reader would never learn
+  // there was anything to judge. Leaving it out costs one re-fetch and gets
+  // it properly scored on the next run.
   let next = seen;
-  for (const p of postings) next = recordSeen(next, p.id, date);
+  for (const p of postings) {
+    if (p.score === null) continue;
+    next = recordSeen(next, p.id, date);
+  }
   saveSeen(seenPath, pruneSeen(next, date, config.dedupe.retentionDays));
+
+  // Scoring failed but the crawl did not: the digest is written unscored so
+  // the run's fetch work is not lost, and the exit code says what happened.
+  if (stats.scoringError) {
+    console.error(`scoring failed: ${stats.scoringError}`);
+    console.error('the digest was written with postings unscored');
+    return 4;
+  }
 
   return 0;
 }
