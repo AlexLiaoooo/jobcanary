@@ -65,6 +65,104 @@ test('the posting id is namespaced by site and derived from the url path', async
   assert.equal(grad.postedAt, null);
 });
 
+test('a query-string job id is part of the posting id', async () => {
+  // Dropping the query collapsed every job on a /job.php?id=N board to one id.
+  // pipeline.mjs keys its within-run map by posting.id and keeps the first, so
+  // the rest vanished with no warning — and the dedupe file then suppressed
+  // that surviving id on every later run.
+  const html = `
+    <a href="/job.php?id=101">Aerodynamicist</a>
+    <a href="/job.php?id=102">Composites Engineer</a>
+    <a href="/job.php?id=103">Thermal Systems Engineer</a>`;
+  const out = await staticAdapter.fetch(
+    site({ hrefPattern: '/\\/job\\.php/i' }),
+    ctx(stubHttp({ text: html })),
+  );
+  assert.equal(out.length, 3);
+  assert.equal(new Set(out.map((p) => p.id)).size, 3);
+  assert.deepEqual(out.map((p) => p.id).sort(), ['acme:/job.php?id=101', 'acme:/job.php?id=102', 'acme:/job.php?id=103']);
+});
+
+test('a tracking parameter does not mint a second id for one job', async () => {
+  // The other half of putting the query in the id: a link that picks up a
+  // ?utm_source= on one page and not another must still be one posting.
+  const html = `
+    <a href="/job.php?id=101">Aerodynamicist</a>
+    <a href="/job.php?id=101&amp;utm_source=newsletter">Aerodynamicist, Bicester</a>
+    <a href="/job.php?gclid=abc&amp;id=101">Aerodynamicist role</a>`;
+  const out = await staticAdapter.fetch(
+    site({ hrefPattern: '/\\/job\\.php/i' }),
+    ctx(stubHttp({ text: html })),
+  );
+  assert.equal(new Set(out.map((p) => p.id)).size, 1);
+  assert.equal(out[0].id, 'acme:/job.php?id=101');
+});
+
+test('a title that merely starts like a call to action is kept', async () => {
+  // Unanchored, ^sign / ^share / ^see / ^view discarded these silently, at no
+  // log level at all. "Signalling Engineer" is a mainstream UK title.
+  const html = `
+    <a href="/careers/signalling-engineer">Signalling Engineer</a>
+    <a href="/careers/signal-processing-engineer">Signal Processing Engineer</a>
+    <a href="/careers/shared-services-analyst">Shared Services Analyst</a>
+    <a href="/careers/seed-programme-engineer">Seed Programme Engineer</a>
+    <a href="/careers/viewpoint-analyst">Viewpoint Analyst</a>`;
+  const out = await staticAdapter.fetch(site(), ctx(stubHttp({ text: html })));
+  assert.deepEqual(out.map((p) => p.title).sort(), [
+    'Seed Programme Engineer',
+    'Shared Services Analyst',
+    'Signal Processing Engineer',
+    'Signalling Engineer',
+    'Viewpoint Analyst',
+  ]);
+});
+
+test('a real call to action is still junk', async () => {
+  const html = `
+    <a href="/careers/one">Apply now</a>
+    <a href="/careers/two">Share</a>
+    <a href="/careers/three">See all vacancies</a>
+    <a href="/careers/four">View job</a>
+    <a href="/careers/five">Sign in</a>`;
+  const out = await staticAdapter.fetch(site({ zeroIsOk: true }), ctx(stubHttp({ text: html })));
+  assert.deepEqual(out, []);
+});
+
+test('an anchor dropped as junk says so at debug', async () => {
+  const debug = [];
+  const logger = { log() {}, warn() {}, error() {}, debug: (m) => debug.push(m) };
+  await staticAdapter.fetch(
+    site({ hrefPattern: '/\\/careers\\/composites-technician/i', zeroIsOk: true }),
+    { http: stubHttp({ text: listing }), logger, timeoutMs: 1000 },
+  );
+  assert.equal(debug.length, 1);
+  assert.match(debug[0], /composites-technician/);
+  assert.match(debug[0], /"Read more"/);
+  assert.match(debug[0], /call to action/);
+});
+
+test('titles that all clean to empty are a site error, not a silent zero', async () => {
+  // The zero-links guard runs before cleanTitle, and the posting loop dropped
+  // an empty title with no log, so a titleStrip of /.*/ produced a site that
+  // returned nothing and threw nothing — defeating what zeroIsOk exists for.
+  const warnings = [];
+  const logger = { log() {}, warn: (m) => warnings.push(m), error() {} };
+  await assert.rejects(
+    () => staticAdapter.fetch(site({ titleStrip: ['/.*/'] }), { http: stubHttp({ text: listing }), logger, timeoutMs: 1000 }),
+    /every title cleaned to empty/,
+  );
+  assert.equal(warnings.length, 2, `expected one warning per dropped title, got ${JSON.stringify(warnings)}`);
+  assert.match(warnings[0], /cleaned to an empty title/);
+});
+
+test('zeroIsOk still covers a board whose every title cleans to empty', async () => {
+  const out = await staticAdapter.fetch(
+    site({ titleStrip: ['/.*/'], zeroIsOk: true }),
+    ctx(stubHttp({ text: listing })),
+  );
+  assert.deepEqual(out, []);
+});
+
 test('keeps the longest title when one link appears twice', async () => {
   // The fixture links the graduate role twice: once with its real title, once
   // as "Apply". Nav duplicates are always the short one.
@@ -134,6 +232,20 @@ test('the loose pattern is used only when the strict one finds nothing', async (
     ctx(stubHttp({ text: listing })),
   );
   assert.ok(out.length > 0, 'the loose pattern should have rescued the run');
+});
+
+test('the loose pattern is a question about the site, not about a page', async () => {
+  // A page 2 with no vacancies on it used to trigger the fallback on its own
+  // and scoop that page's nav into the run, while the strict pattern was
+  // working perfectly on page 1.
+  const page2 = '<nav><a href="/careers-advice">Careers advice</a><a href="/careers-fair">Careers fair</a></nav>';
+  const http = stubHttp((url) => ({ text: url.includes('page=2') ? page2 : listing }));
+  const out = await staticAdapter.fetch(
+    site({ pages: ['https://careers.acmedynamics.test/?page=2'], looseHrefPattern: '/careers/i' }),
+    ctx(http),
+  );
+  assert.equal(out.length, 2, `got ${JSON.stringify(out.map((p) => p.title))}`);
+  assert.ok(!out.some((p) => p.url.includes('careers-advice')));
 });
 
 test('the loose pattern is not consulted when the strict one matched', async () => {

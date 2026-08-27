@@ -5,7 +5,13 @@ const DESCRIPTION_CAP = 8000;
 // Anchor text that is a call to action rather than a job title. A page whose
 // only link text is "Apply" or "Find out more" is common enough that the
 // titleFromSlug escape hatch exists for it.
-const JUNK_TEXT = /^(apply|read more|view|see|learn more|find out more|more info|details|share|login|log in|sign)/i;
+//
+// The short entries are anchored. Unanchored, `^sign`, `^share`, `^see` and
+// `^view` silently discarded Signalling Engineer, Signal Processing Engineer,
+// Sign Writer, Shared Services Analyst, Seed Programme Engineer and Viewpoint
+// Analyst — and "Signalling Engineer" is a mainstream UK engineering title.
+const JUNK_TEXT =
+  /^(apply|read more|learn more|find out more|more info|details|login|log in|sign(\s|$)|share$|see\b|view(\s|$))/i;
 const MIN_TITLE = 4;
 const MAX_TITLE = 160;
 
@@ -32,23 +38,44 @@ function compileSiteRegex(spec, field, siteId) {
 const compileList = (specs, field, siteId) =>
   (specs ?? []).map((s, i) => compileSiteRegex(s, `${field}[${i}]`, siteId));
 
+/** Why this anchor text cannot be a job title, or '' if it can. */
+function junkReason(title) {
+  if (!title) return 'is empty';
+  if (title.length < MIN_TITLE) return `is under ${MIN_TITLE} characters`;
+  if (title.length > MAX_TITLE) return `is over ${MAX_TITLE} characters`;
+  if (JUNK_TEXT.test(title)) return 'reads as a call to action rather than a job title';
+  return '';
+}
+
 /**
  * Harvest `<a href>` pairs whose href matches `pattern`.
  *
  * Returns a Map keyed by absolute url, holding the longest title seen for it:
  * a job usually appears once with its real title and again as "Apply" or
  * inside a nav, and the longest text is reliably the real one.
+ *
+ * Every rejection is logged at debug. A whole job family can disappear behind
+ * one of these rules, and without a line somewhere there is no way for a user
+ * to find out why.
  */
-function harvestAnchors(html, pattern, baseUrl, { allowJunkText }) {
+function harvestAnchors(html, pattern, baseUrl, { allowJunkText, siteId, logger }) {
   const found = new Map();
   const anchor = /<a\b[^>]*?href\s*=\s*["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
 
-  for (const [, href, inner] of html.matchAll(anchor)) {
+  for (const [, rawHref, inner] of html.matchAll(anchor)) {
+    // `&` is written `&amp;` in an href, and the query string is now part of a
+    // posting's identity: left encoded, `?id=101&amp;utm_source=x` parses as a
+    // parameter literally named "amp;utm_source", which no tracking-parameter
+    // list can recognise and which would mint a second id for the same job.
+    const href = rawHref.replace(/&amp;/gi, '&');
     if (!pattern.test(href)) continue;
 
-    let title = stripHtml(inner);
-    const junk = !title || title.length < MIN_TITLE || title.length > MAX_TITLE || JUNK_TEXT.test(title);
-    if (junk && !allowJunkText) continue;
+    const title = stripHtml(inner);
+    const reason = junkReason(title);
+    if (reason && !allowJunkText) {
+      logger?.debug?.(`[${siteId}] dropped ${href}: anchor text ${JSON.stringify(title)} ${reason}`);
+      continue;
+    }
 
     let url = href;
     try {
@@ -280,10 +307,29 @@ export function extractDescription(html) {
     .slice(0, DESCRIPTION_CAP);
 }
 
-/** Static sites have no ids, so the url path is the stable identity. */
+// Parameters that identify the referrer, not the job. Left in, a link that
+// picks up a `?utm_source=` on one page and not another mints two ids for one
+// posting; taken out along with everything else, `/job.php?id=101` loses the
+// only thing that identifies it.
+const TRACKING_PARAM = /^(utm_[\w-]*|gclid|fbclid|ref|source)$/i;
+
+/**
+ * Static sites have no ids, so the url is the stable identity.
+ *
+ * Path *and* query. Dropping the query was the adapter's stated design, and the
+ * design was wrong: on a board using `/job.php?id=101` every posting collapsed
+ * to `site:/job.php`, pipeline.mjs kept the first and discarded the rest with no
+ * warning, and the dedupe file then suppressed that one id on every later run.
+ */
 function nativeIdFor(url) {
   try {
-    return new URL(url).pathname.replace(/\/+$/, '') || '/';
+    const parsed = new URL(url);
+    for (const key of [...parsed.searchParams.keys()]) {
+      if (TRACKING_PARAM.test(key)) parsed.searchParams.delete(key);
+    }
+    const path = parsed.pathname.replace(/\/+$/, '') || '/';
+    const query = parsed.searchParams.toString();
+    return query ? `${path}?${query}` : path;
   } catch {
     return url;
   }
@@ -322,8 +368,8 @@ export default {
     };
 
     const urls = [site.url, ...(site.pages ?? [])];
-    const allowJunkText = Boolean(site.titleFromSlug);
-    const byUrl = new Map();
+    const harvestOpts = { allowJunkText: Boolean(site.titleFromSlug), siteId: site.id, logger: ctx.logger };
+    const pages = [];
     let firstStatus = null;
 
     for (const [index, pageUrl] of urls.entries()) {
@@ -337,13 +383,25 @@ export default {
         ctx.logger?.warn?.(`[${site.id}] page ${index + 1} returned HTTP ${res.status} — keeping earlier pages`);
         break;
       }
-
-      let hits = harvestAnchors(res.text, compiled.href, pageUrl, { allowJunkText });
-      if (hits.size === 0 && compiled.loose) {
-        hits = harvestAnchors(res.text, compiled.loose, pageUrl, { allowJunkText });
-      }
-      for (const [url, title] of hits) if (!byUrl.has(url)) byUrl.set(url, title);
+      pages.push({ url: pageUrl, html: res.text });
     }
+
+    const byUrl = new Map();
+    const harvest = (pattern) => {
+      for (const page of pages) {
+        for (const [url, title] of harvestAnchors(page.html, pattern, page.url, harvestOpts)) {
+          if (!byUrl.has(url)) byUrl.set(url, title);
+        }
+      }
+    };
+
+    // Strictly over every page first, and only then loosely. Deciding this per
+    // page meant a page 2 with no vacancies on it triggered the loose pattern —
+    // scooping that page's nav into the run — while the strict pattern was
+    // working perfectly on page 1. The question the fallback answers is whether
+    // the site matched, not whether a page did.
+    harvest(compiled.href);
+    if (byUrl.size === 0 && compiled.loose) harvest(compiled.loose);
 
     if (byUrl.size === 0 && !site.zeroIsOk) {
       // A page that renders fine but matches nothing usually means the markup
@@ -359,8 +417,22 @@ export default {
     const postings = [];
     for (const [url, rawTitle] of byUrl) {
       const title = cleanTitle(rawTitle, url, site, compiled);
-      if (!title) continue;
+      if (!title) {
+        ctx.logger?.warn?.(`[${site.id}] dropped ${url}: ${JSON.stringify(rawTitle)} cleaned to an empty title`);
+        continue;
+      }
       postings.push(makePosting({ site, nativeId: nativeIdFor(url), title, url, description: '' }));
+    }
+
+    // Checked again, because the guard above runs before cleanTitle. A
+    // titleStrip of /.*/ used to produce a site that returned zero postings,
+    // threw nothing and logged nothing — defeating exactly the protection
+    // zeroIsOk exists to make deliberate.
+    if (postings.length === 0 && !site.zeroIsOk) {
+      throw new Error(
+        `static site '${site.id}' found ${byUrl.size} job link(s) but every title cleaned to empty — ` +
+          `titleSplit or titleStrip is too aggressive, or set zeroIsOk if the board is legitimately empty`
+      );
     }
     return postings;
   },
