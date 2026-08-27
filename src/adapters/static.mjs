@@ -9,8 +9,12 @@ const DESCRIPTION_CAP = 8000;
 //
 // The short entries are anchored. Unanchored, `^sign`, `^share`, `^see` and
 // `^view` silently discarded Signalling Engineer, Signal Processing Engineer,
-// Sign Writer, Shared Services Analyst, Seed Programme Engineer and Viewpoint
-// Analyst — and "Signalling Engineer" is a mainstream UK engineering title.
+// Shared Services Analyst, Seed Programme Engineer and Viewpoint Analyst —
+// "Signalling Engineer" is a mainstream UK engineering title.
+//
+// `^sign(\s|$)` still costs "Sign Writer", because the same two words open
+// "Sign in" and "Sign up". That one is a knowing trade, not an oversight, and
+// the debug line below is what makes it findable.
 const JUNK_TEXT =
   /^(apply|read more|learn more|find out more|more info|details|login|log in|sign(\s|$)|share$|see\b|view(\s|$))/i;
 const MIN_TITLE = 4;
