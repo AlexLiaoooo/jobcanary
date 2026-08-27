@@ -94,11 +94,129 @@ function cleanTitle(title, url, site, compiled) {
   return out.replace(/\s{2,}/g, ' ').trim();
 }
 
-// Containers whose contents are page furniture, not the advert. Matched by
-// tag, and by the class/id names that carry the same meaning in a div soup.
-const CHROME_TAGS = /<(nav|header|footer|aside|form|script|style|noscript|svg|select)\b[\s\S]*?<\/\1>/gi;
-const CHROME_ATTRS =
-  /<(div|section|ul|ol)\b[^>]*(?:class|id)\s*=\s*["'][^"']*\b(nav|menu|sidebar|side-bar|breadcrumb|cookie|consent|related|similar|share|social|search|filter|pagination|skip-link|banner)\b[^"']*["'][\s\S]*?<\/\1>/gi;
+/**
+ * Find the outermost elements of `tags` in `html`, pairing every closing tag
+ * with its own opener.
+ *
+ * A regex cannot match balanced tags, so this stops trying. `<div
+ * class="sidebar"><div>…</div>…more…</div>` ends a non-greedy `[\s\S]*?<\/\1>`
+ * at the *inner* `</div>` and leaves the rest of the furniture behind — the
+ * original failure on a real careers page, verbatim. Depth is counted here
+ * instead. Unbalanced markup is skipped rather than guessed at: an element
+ * whose closing tag never arrives is simply not reported.
+ *
+ * @param {string} html
+ * @param {string[]} tags lower-case tag names
+ * @returns {{tag: string, attrs: string, start: number, innerStart: number,
+ *   innerEnd: number, end: number, inner: string}[]} in document order
+ */
+function findElements(html, tags) {
+  // (?![-\w]) rather than \b so <nav-item> is not read as <nav>.
+  const token = new RegExp(`<(/?)(${tags.join('|')})(?![-\\w])([^>]*?)(/?)>`, 'gi');
+  const open = [];
+  const found = [];
+
+  for (const m of html.matchAll(token)) {
+    const tag = m[2].toLowerCase();
+    if (m[1]) {
+      const at = open.findLastIndex((el) => el.tag === tag);
+      if (at === -1) continue; // a stray closer belongs to nothing
+      const el = open[at];
+      open.length = at; // anything still open inside it was never closed
+      if (open.length === 0) {
+        found.push({ ...el, innerEnd: m.index, end: m.index + m[0].length, inner: html.slice(el.innerStart, m.index) });
+      }
+    } else if (!m[4]) {
+      open.push({ tag, attrs: m[3], start: m.index, innerStart: m.index + m[0].length });
+    }
+  }
+  return found;
+}
+
+/** The inner HTML of the `tag` element carrying the most text, or null. */
+function longestElement(html, tag) {
+  let best = null;
+  let bestLength = -1;
+  for (const el of findElements(html, [tag])) {
+    const length = stripHtml(el.inner).length;
+    if (length > bestLength) [best, bestLength] = [el.inner, length];
+  }
+  return best;
+}
+
+/** Remove each outermost `tags` element, children included. */
+function removeElements(html, tags) {
+  let out = '';
+  let cursor = 0;
+  for (const el of findElements(html, tags)) {
+    out += `${html.slice(cursor, el.start)} `;
+    cursor = el.end;
+  }
+  return out + html.slice(cursor);
+}
+
+// Removed wherever they appear, inside a semantic container or not: none of
+// them ever carries advert text, and a <select> of every office turns a
+// location picker into a list of cities the job is not in.
+const INERT_TAGS = ['script', 'style', 'noscript', 'template', 'svg', 'select', 'nav', 'aside'];
+
+// Page furniture — but only when the page gave us no semantic container. Inside
+// a <main> or an <article>, a <header> is the advert's own title block, holding
+// exactly the title, location, contract type and salary the exclude rules key
+// on; removing it there threw away the most rule-relevant text on the page.
+//
+// `form` is deliberately in neither list. Legacy ASP.NET wraps the whole <body>
+// in <form runat="server">, and stripping forms emptied those pages outright —
+// and "server-rendered, no ATS" is precisely the demographic this adapter is
+// for.
+const PAGE_CHROME_TAGS = ['head', 'header', 'footer'];
+
+// Containers a class or id can mark as furniture, and where the densest-block
+// fallback looks.
+const ATTR_CHROME_TAGS = ['div', 'section', 'ul', 'ol'];
+const BLOCK_TAGS = ['div', 'section'];
+
+// Names that mark a container as furniture. Matched as a prefix of a word in
+// the value, so `navigation`, `navbar`, `site-navigation`, `mainNav`,
+// `menuWrapper` and `primary-navigation` are all caught — a `\b(nav|…)\b` list
+// missed every one of them.
+const CHROME_WORDS = [
+  'nav', 'menu', 'sidebar', 'breadcrumb', 'cookie', 'consent', 'related',
+  'similar', 'share', 'social', 'search', 'filter', 'pagination', 'skip', 'banner',
+];
+
+// Anchored to an attribute-name boundary. Unanchored, `(?:class|id)` matched
+// inside `data-testid="job-banner"` and `data-uid="related-99"` — which does
+// not mark furniture, it deletes the advert.
+const CLASS_OR_ID = /(?:^|\s)(?:class|id)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]*))/gi;
+
+// Whitespace, the separators class names actually use, and camelCase humps.
+const WORD_BREAK = /[\s_\-.:]+|(?<=[a-z0-9])(?=[A-Z])/;
+
+function isChromeAttrs(attrs) {
+  for (const m of attrs.matchAll(CLASS_OR_ID)) {
+    for (const word of (m[1] ?? m[2] ?? m[3] ?? '').split(WORD_BREAK)) {
+      const w = word.toLowerCase();
+      if (w && CHROME_WORDS.some((prefix) => w.startsWith(prefix))) return true;
+    }
+  }
+  return false;
+}
+
+/** Drop furniture containers at any depth, each one whole. */
+function removeChromeContainers(html) {
+  let out = '';
+  let cursor = 0;
+  for (const el of findElements(html, ATTR_CHROME_TAGS)) {
+    out += html.slice(cursor, el.start);
+    // Not furniture itself, but something nested inside it may be.
+    out += isChromeAttrs(el.attrs)
+      ? ' '
+      : html.slice(el.start, el.innerStart) + removeChromeContainers(el.inner) + html.slice(el.innerEnd, el.end);
+    cursor = el.end;
+  }
+  return out + html.slice(cursor);
+}
 
 /**
  * Reduce a job page to the advert text.
@@ -111,9 +229,11 @@ const CHROME_ATTRS =
  * description makes the model cautious, a noisy one makes it confident and
  * wrong.
  *
- * So: prefer a semantic main/article container when the page has one, fall
- * back to the densest block of text, and drop the empty list items that turn
- * a nav into a wall of bullets.
+ * Order matters, and getting it wrong is what made the first rewrite ineffective:
+ *
+ *   1. choose the container, believing <main>/<article> when the page has one;
+ *   2. only then strip chrome, and only inside that container;
+ *   3. and only without a semantic container, fall back to the densest block.
  *
  * @param {string} html
  * @returns {string}
@@ -121,18 +241,37 @@ const CHROME_ATTRS =
 export function extractDescription(html) {
   if (!html || typeof html !== 'string') return '';
 
-  const cleaned = html.replace(/<!--[\s\S]*?-->/g, ' ').replace(CHROME_TAGS, ' ').replace(CHROME_ATTRS, ' ');
+  // Comments first: a commented-out tag would otherwise unbalance the scan.
+  const doc = html.replace(/<!--[\s\S]*?-->/g, ' ');
 
-  // A page with <main> or <article> has told us where the content is; believe
-  // it. Otherwise take the longest text run, which on a job page is the advert.
-  const semantic = cleaned.match(/<(main|article)\b[^>]*>([\s\S]*?)<\/\1>/i);
-  const source = semantic
-    ? semantic[2]
-    : [...cleaned.matchAll(/<(div|section)\b[^>]*>([\s\S]*?)<\/\1>/gi)]
-        .map((m) => m[2])
-        .reduce((best, block) => (stripHtml(block).length > stripHtml(best).length ? block : best), cleaned);
+  // The longest <article>, not the first: related-job cards are commonly
+  // <article>, so document order returned a different job's advert — the exact
+  // failure this function exists to prevent.
+  const semantic = longestElement(doc, 'main') ?? longestElement(doc, 'article');
+  const container = semantic ?? longestElement(doc, 'body') ?? doc;
 
-  return stripHtml(source)
+  let stripped = removeElements(container, INERT_TAGS);
+  if (semantic === null) stripped = removeElements(stripped, PAGE_CHROME_TAGS);
+  stripped = removeChromeContainers(stripped);
+
+  let text = stripHtml(stripped);
+
+  if (semantic === null) {
+    // Seeded with '', not with the whole page: seeded with the page, no block
+    // could ever be longer and the fallback never moved off its seed at all.
+    const densest = findElements(stripped, BLOCK_TAGS).reduce(
+      (best, el) => (stripHtml(el.inner).length > stripHtml(best).length ? el.inner : best),
+      '',
+    );
+    // A block is only "the" block if it carries more text than the whole rest
+    // of the page put together. Comparing it against the entire stripped page
+    // instead would make the fallback inert a second time — a block is always
+    // a subset of the page, so it can never win that comparison.
+    const blockText = stripHtml(densest);
+    if (blockText.length > text.length - blockText.length) text = blockText;
+  }
+
+  return text
     .split('\n')
     // An empty list item renders as a bare bullet. Real adverts have text
     // after theirs; navigation, stripped of its links, does not.

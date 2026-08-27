@@ -241,16 +241,19 @@ test('extraction prefers a semantic main container over the whole page', () => {
 });
 
 test('extraction drops containers whose class marks them as furniture', () => {
+  // The furniture is deliberately LONGER than the advert, and there is no
+  // <main>. Without the class blocklist the densest-block fallback would pick
+  // the related-jobs list and this test would pass on the wrong mechanism —
+  // which is exactly what a shorter furniture block let it do before.
+  const furniture = 'Composites Engineer. Aerodynamicist. Design Engineer. '.repeat(20);
   const html = `
     <body>
-      <div id="related-jobs"><p>Composites Engineer</p></div>
+      <div id="related-jobs"><p>${furniture}</p></div>
       <div class="cookie-consent"><p>We use cookies</p></div>
-      <div><p>The advert itself, which is much longer than the other blocks on this page.</p></div>
+      <div><p>The advert itself.</p></div>
     </body>`;
   const text = extractDescription(html);
-  assert.match(text, /The advert itself/);
-  assert.doesNotMatch(text, /Composites Engineer/);
-  assert.doesNotMatch(text, /cookies/i);
+  assert.equal(text, 'The advert itself.');
 });
 
 test('extraction drops the empty bullets a stripped nav leaves behind', () => {
@@ -265,7 +268,115 @@ test('extraction falls back to the densest block when there is no main', () => {
       <div><p>Short.</p></div>
       <div><p>${'A much longer advert body. '.repeat(20)}</p></div>
     </body>`;
-  assert.match(extractDescription(html), /A much longer advert body/);
+  const text = extractDescription(html);
+  assert.match(text, /A much longer advert body/);
+  // Asserting only that the advert is present proves nothing: returning the
+  // whole page satisfies it, which is exactly what the reduce did when it was
+  // seeded with the document and no candidate could ever be longer.
+  assert.doesNotMatch(text, /Short\./);
+});
+
+test('extraction keeps a nothing-but-text page when no block dominates it', () => {
+  // The densest block must out-weigh the rest of the page, or the page stands.
+  const html = '<body><p>The advert body, which is not inside any block at all.</p><div>tiny</div></body>';
+  assert.match(extractDescription(html), /not inside any block at all/);
+});
+
+test('extraction keeps the header nested inside an article', () => {
+  // Stripping chrome before choosing the container destroyed the advert's own
+  // header — the title, location, contract type and salary, which is precisely
+  // what the exclude rules key on.
+  const html = `
+    <main><article>
+      <header><h1>Aerodynamicist</h1><p>Bicester | Full-time | 45k</p></header>
+      <p>You will own the CFD process.</p>
+    </article></main>`;
+  const text = extractDescription(html);
+  assert.match(text, /Aerodynamicist/);
+  assert.match(text, /Bicester \| Full-time \| 45k/);
+  assert.match(text, /You will own the CFD process/);
+});
+
+test('extraction survives a page wrapped in a form', () => {
+  // Legacy ASP.NET wraps the whole body in <form runat="server">. `form` was in
+  // the strip list, which emptied every such page — and "server-rendered, with
+  // no ATS" is the demographic this adapter exists for.
+  const html = `
+    <body><form runat="server" method="post">
+      <main><p>We are hiring a chassis design engineer in Bicester.</p></main>
+      <input type="submit" value="Apply">
+    </form></body>`;
+  assert.match(extractDescription(html), /chassis design engineer in Bicester/);
+});
+
+test('extraction takes the longest article, not the first', () => {
+  // Related-job cards are commonly <article>, so "first in document order"
+  // returned a different job's text.
+  const html = `
+    <article class="job-card"><h3>Composites Engineer</h3></article>
+    <article><p>${'The actual advert body. '.repeat(10)}</p></article>`;
+  const text = extractDescription(html);
+  assert.match(text, /The actual advert body/);
+  assert.doesNotMatch(text, /Composites Engineer/);
+});
+
+test('extraction prefers main even when an article comes first', () => {
+  const html = '<article class="job-card"><h3>Composites Engineer</h3></article><main><p>The actual advert.</p></main>';
+  assert.equal(extractDescription(html), 'The actual advert.');
+});
+
+test('a furniture container is removed whole, however deeply it nests', () => {
+  // A non-greedy `[\s\S]*?<\/\1>` with a backreference stops at the first inner
+  // </div>, so the rest of the sidebar survived.
+  const html = `
+    <body>
+      <div class="sidebar">
+        <div><p>Nested furniture</p></div>
+        <p>Furniture that outlived the closing tag</p>
+      </div>
+      <div><p>${'The advert body. '.repeat(10)}</p></div>
+    </body>`;
+  const text = extractDescription(html);
+  assert.match(text, /The advert body/);
+  assert.doesNotMatch(text, /Nested furniture/);
+  assert.doesNotMatch(text, /outlived the closing tag/);
+});
+
+test('a nested furniture container is removed even inside a kept one', () => {
+  const html = `
+    <body><div class="content">
+      <div class="related-jobs"><p>Composites Engineer</p></div>
+      <p>${'The advert body. '.repeat(10)}</p>
+    </div></body>`;
+  const text = extractDescription(html);
+  assert.match(text, /The advert body/);
+  assert.doesNotMatch(text, /Composites Engineer/);
+});
+
+test('the furniture blocklist catches the names real pages actually use', () => {
+  for (const name of ['navigation', 'navbar', 'site-navigation', 'mainNav', 'menuWrapper', 'primary-navigation']) {
+    const html = `
+      <body>
+        <div class="${name}"><p>Home About Careers Contact Us Today</p></div>
+        <div><p>${'The advert body. '.repeat(10)}</p></div>
+      </body>`;
+    const text = extractDescription(html);
+    assert.doesNotMatch(text, /Home About Careers/, `class="${name}" should be furniture`);
+    assert.match(text, /The advert body/, `class="${name}" should not eat the advert`);
+  }
+});
+
+test('the furniture blocklist reads class and id, not every attribute ending in id', () => {
+  // Unanchored, `(?:class|id)` matched inside data-testid and data-uid, and the
+  // container it deleted was the advert.
+  assert.equal(
+    extractDescription('<body><div data-testid="job-banner"><p>The advert body.</p></div></body>'),
+    'The advert body.',
+  );
+  assert.equal(
+    extractDescription('<body><div data-uid="related-99"><p>The advert body.</p></div></body>'),
+    'The advert body.',
+  );
 });
 
 test('extraction returns an empty string for junk input', () => {
