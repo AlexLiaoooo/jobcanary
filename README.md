@@ -215,13 +215,15 @@ Most companies do not run a job board you can query; they run a page with links 
   zeroIsOk: true                                # optional: an empty board is normal here
 ```
 
-Regex fields use the same `/body/flags` string form as rules.
+Regex fields use the same `/body/flags` string form as rules: a plain string is matched case-insensitively as a literal, and `/pattern/flags` compiles to a real `RegExp`.
 
-**`titleFromSlug` rescues a page whose links say "Apply" or "Find out more".** Anchor text that short is treated as junk and dropped, because it is usually navigation. With `titleFromSlug` the URL supplies the title instead.
+**`titleFromSlug` rescues a page whose links say "Apply" or "Find out more".** Anchor text that short is treated as junk and dropped, because it is usually navigation. With `titleFromSlug` the URL supplies the title instead. Every anchor dropped as junk is logged at debug, so a job family that disappears can be traced to the rule that dropped it.
 
-**Zero matching links is an error, not an empty result.** A careers page that loads fine but matches nothing almost always means the markup changed, not that hiring stopped — so the run reports a site error naming the site and its pattern. Set `zeroIsOk` on boards that genuinely sit empty, so that a real break stays visible.
+**A posting's identity is its URL path *and* query.** These pages carry no ids of their own, so on a board that addresses jobs as `/job.php?id=101` the query string is the only thing telling one vacancy from another. Common tracking parameters (`utm_*`, `gclid`, `fbclid`, `ref`, `source`) are stripped from it first, so a link that picks one up on one page and not on another is still one job.
 
-**Descriptions are extracted, not served.** There is no API to ask, so the adapter opens each surviving posting, prefers a `<main>` or `<article>` container, falls back to the densest block of text, and drops navigation, cookie banners, related-job lists and the empty bullets a stripped menu leaves behind. It is best-effort: most pages extract cleanly, some carry residue. Anything unreadable returns empty rather than failing the run.
+**Zero matching links is an error, not an empty result.** A careers page that loads fine but matches nothing almost always means the markup changed, not that hiring stopped — so the run reports a site error naming the site and its pattern. The same applies when links are found but `titleSplit` or `titleStrip` reduces every title to nothing. Set `zeroIsOk` on boards that genuinely sit empty, so that a real break stays visible.
+
+**Descriptions are extracted, not served.** There is no API to ask, so the adapter opens each surviving posting and reduces it in that order: choose the container (`<main>`, else the longest `<article>`, else `<body>`), strip the chrome inside it — navigation, cookie banners, related-job lists — and only when the page offered no semantic container fall back to its densest block of text. Empty bullets left behind by a stripped menu go too. An advert's own `<header>` is kept: the title, location, contract type and salary it holds are exactly what your `exclude` rules read. It is best-effort: most pages extract cleanly, some carry residue. Anything unreadable returns empty rather than failing the run.
 
 ## Scoring providers
 

@@ -163,12 +163,25 @@ test('zeroIsOk still covers a board whose every title cleans to empty', async ()
   assert.deepEqual(out, []);
 });
 
-test('keeps the longest title when one link appears twice', async () => {
-  // The fixture links the graduate role twice: once with its real title, once
-  // as "Apply". Nav duplicates are always the short one.
+test('keeps the longest title when one link appears more than once', async () => {
+  // The fixture links the graduate role four times: a short real title, the
+  // full one, another short real title, and "Apply". The two short ones are
+  // there so the length comparison is actually reached — with only "Apply" for
+  // company, JUNK_TEXT dropped that anchor first and this test passed for a
+  // reason it did not claim.
   const out = await staticAdapter.fetch(site(), ctx(stubHttp({ text: listing })));
   assert.equal(out.filter((p) => p.url.endsWith('graduate-design-engineer')).length, 1);
   assert.equal(out.find((p) => p.url.endsWith('graduate-design-engineer')).title, 'Graduate Design Engineer');
+});
+
+test('zeroIsOk covers a paginated site whose every page is empty', async () => {
+  const http = stubHttp({ text: '<p>no vacancies at present</p>' });
+  const out = await staticAdapter.fetch(
+    site({ zeroIsOk: true, pages: ['https://careers.acmedynamics.test/?page=2'] }),
+    ctx(http),
+  );
+  assert.equal(http.calls.length, 2, 'every page is still fetched');
+  assert.deepEqual(out, []);
 });
 
 test('junk anchor text is dropped unless the title comes from the slug', async () => {
@@ -531,5 +544,6 @@ test('extraction returns an empty string for junk input', () => {
 test('fetchDescription caps a runaway page', async () => {
   const huge = `<main>${'word '.repeat(20000)}</main>`;
   const text = await staticAdapter.fetchDescription({ url: 'https://x.test/j' }, site(), ctx(stubHttp({ text: huge })));
-  assert.ok(text.length <= 8001, `expected a capped description, got ${text.length} chars`);
+  // Exactly the cap: <= 8001 would have accepted an off-by-one over it.
+  assert.equal(text.length, 8000);
 });
