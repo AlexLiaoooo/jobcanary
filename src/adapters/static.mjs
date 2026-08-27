@@ -302,16 +302,16 @@ export function extractDescription(html) {
   if (semantic === null) {
     // Seeded with '', not with the whole page: seeded with the page, no block
     // could ever be longer and the fallback never moved off its seed at all.
-    const densest = findElements(stripped, BLOCK_TAGS).reduce(
-      (best, el) => (stripHtml(el.inner).length > stripHtml(best).length ? el.inner : best),
-      '',
-    );
+    // Stripped once per block up front, so the reduce compares lengths rather
+    // than re-stripping the incumbent on every comparison.
+    const densest = findElements(stripped, BLOCK_TAGS)
+      .map((el) => stripHtml(el.inner))
+      .reduce((best, block) => (block.length > best.length ? block : best), '');
     // A block is only "the" block if it carries more text than the whole rest
     // of the page put together. Comparing it against the entire stripped page
     // instead would make the fallback inert a second time — a block is always
-    // a subset of the page, so it can never win that comparison.
-    const blockText = stripHtml(densest);
-    if (blockText.length > text.length - blockText.length) text = blockText;
+    // a subset of the page, so it could never win that comparison.
+    if (densest.length > text.length - densest.length) text = densest;
   }
 
   return text
