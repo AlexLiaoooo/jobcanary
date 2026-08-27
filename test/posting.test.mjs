@@ -57,3 +57,10 @@ test('makePosting throws when a required field is missing', () => {
   assert.throws(() => makePosting({ site: { id: 'a', company: 'A' }, nativeId: '1', title: '' }), /title/);
   assert.throws(() => makePosting({ site: { id: 'a', company: 'A' }, title: 'X', url: 'u' }), /nativeId/);
 });
+
+test('stripHtml decodes numeric character references, decimal and hex', () => {
+  // Real career pages emit these freely; a live run found a literal "&#xA0;"
+  // reaching the scoring model as text.
+  assert.equal(stripHtml('<p>Duties:&#xA0;Undertake&#8230;</p>'), 'Duties: Undertake…');
+  assert.equal(stripHtml('<p>R&#38;D at 30&#176;C</p>'), 'R&D at 30°C');
+});

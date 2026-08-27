@@ -19,6 +19,16 @@ export function stripHtml(html) {
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#0?39;|&apos;/g, "'")
+    // Numeric character references, decimal and hex. Real career pages emit
+    // these freely — a live run against a real board turned up a literal
+    // "&#xA0;" surviving into a description and on to the scoring model.
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    // &nbsp; is normalised to a plain space above, so its numeric spellings
+    // must be too — otherwise the same character behaves differently depending
+    // on how the page happened to encode it, and a keyword match silently
+    // depends on that.
+    .replace(/ /g, ' ')
     .replace(/[ \t]+/g, ' ')
     .replace(/ *\n */g, '\n')
     .replace(/\n{2,}/g, '\n')

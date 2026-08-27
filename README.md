@@ -192,7 +192,36 @@ Every adapter reads a site's public, unauthenticated job API — no login, no AP
 | `lever`      | `board`                       | Lever account slug, e.g. the `xyz` in `jobs.lever.co/xyz`. Descriptions ship with the listing. |
 | `workday`    | `host`, `tenant`, `board`     | `host` is the tenant's Workday origin (e.g. `https://acme.wd3.myworkdayjobs.com`), `tenant` the CXS tenant name, `board` the career site name (often `External`). Descriptions require a second request per posting, done automatically for postings that survive the rules. |
 
-Only these three adapters exist today. A larger adapter fleet (static career pages, and ATS platforms including Ashby, SmartRecruiters, Personio, Recruitee, Occupop, and others) is planned for a later release, along with a browser-driven tier for sites with no JSON API.
+| `static`     | `url`, `hrefPattern`          | Any server-rendered careers page. Jobs are harvested from `<a>` tags whose href matches `hrefPattern`. See below — this is the adapter for companies with no recognised ATS, which is most of them. |
+
+Only these four adapters exist today. More ATS platforms (Ashby, SmartRecruiters, Personio, Recruitee, Occupop, and others) are planned for a later release, along with a browser-driven tier for sites that render their jobs client-side.
+
+### The `static` adapter
+
+Most companies do not run a job board you can query; they run a page with links on it. `static` reads those pages. It reaches the widest set of employers and is the only adapter needing per-site configuration, because every such page is different.
+
+```yaml
+- id: acme
+  company: Acme Dynamics
+  type: static
+  url: https://careers.acme.test/               # required
+  hrefPattern: "/\\/careers\\/[a-z0-9-]{3,}/i"  # required: which links are jobs
+  looseHrefPattern: "/\\/careers\\//i"          # optional: fallback if the strict one finds nothing
+  pages: ["https://careers.acme.test/?p=2"]     # optional: server-side pagination
+  titleFromSlug: true                           # optional: build the title from the URL
+  slugStrip: ["/-jid-\\d+$/i"]                  # optional: trim the slug first
+  titleSplit: "|"                               # optional: keep text before this separator
+  titleStrip: ["/\\(apply now\\)/i"]            # optional: remove boilerplate from titles
+  zeroIsOk: true                                # optional: an empty board is normal here
+```
+
+Regex fields use the same `/body/flags` string form as rules.
+
+**`titleFromSlug` rescues a page whose links say "Apply" or "Find out more".** Anchor text that short is treated as junk and dropped, because it is usually navigation. With `titleFromSlug` the URL supplies the title instead.
+
+**Zero matching links is an error, not an empty result.** A careers page that loads fine but matches nothing almost always means the markup changed, not that hiring stopped — so the run reports a site error naming the site and its pattern. Set `zeroIsOk` on boards that genuinely sit empty, so that a real break stays visible.
+
+**Descriptions are extracted, not served.** There is no API to ask, so the adapter opens each surviving posting, prefers a `<main>` or `<article>` container, falls back to the densest block of text, and drops navigation, cookie banners, related-job lists and the empty bullets a stripped menu leaves behind. It is best-effort: most pages extract cleanly, some carry residue. Anything unreadable returns empty rather than failing the run.
 
 ## Scoring providers
 
