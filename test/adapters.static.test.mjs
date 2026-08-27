@@ -206,6 +206,37 @@ test('titleSplit keeps only the text before the separator', async () => {
   assert.ok(titles.includes('Thermal Systems Engineer'), `got ${JSON.stringify(titles)}`);
 });
 
+test('a multi-line anchor becomes a single-line title', async () => {
+  // stripHtml turns the block closers into newlines, and \s{2,} does not catch
+  // a single one. markdown.mjs interpolates the title into a `###` heading, so
+  // a newline in it breaks the digest's structure.
+  const html = '<a href="/careers/aerodynamics-engineer"><h3>Aerodynamics Engineer</h3><p>Bicester</p></a>';
+  const out = await staticAdapter.fetch(site(), ctx(stubHttp({ text: html })));
+  assert.equal(out[0].title, 'Aerodynamics Engineer Bicester');
+  assert.doesNotMatch(out[0].title, /\n/);
+});
+
+test('a plain-string pattern is a literal, exactly as a rule matcher is', async () => {
+  // The README says site regex fields take the same form as a rule's `match`,
+  // where a plain string is escaped as a literal. Compiled as a pattern, the
+  // parentheses in "job (UK)" became a group and matched the href "/job UK/1".
+  const html = '<a href="/job UK/1">Aerodynamicist</a><a href="/job (UK)/2">Composites Engineer</a>';
+  const out = await staticAdapter.fetch(
+    site({ hrefPattern: 'job (UK)' }),
+    ctx(stubHttp({ text: html })),
+  );
+  assert.deepEqual(out.map((p) => p.title), ['Composites Engineer']);
+});
+
+test('a /body/flags pattern is still a real regex', async () => {
+  const html = '<a href="/careers/aero-engineer">Aero Engineer</a><a href="/other/x">Other</a>';
+  const out = await staticAdapter.fetch(
+    site({ hrefPattern: '/\\/careers\\/[a-z-]+/i' }),
+    ctx(stubHttp({ text: html })),
+  );
+  assert.deepEqual(out.map((p) => p.title), ['Aero Engineer']);
+});
+
 test('titleStrip removes matching boilerplate from titles', async () => {
   const html = '<a href="/careers/design-engineer">Design Engineer (Apply now)</a>';
   const out = await staticAdapter.fetch(

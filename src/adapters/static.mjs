@@ -1,4 +1,5 @@
 import { makePosting, stripHtml } from '../posting.mjs';
+import { escapeLiteral } from '../config.mjs';
 
 const DESCRIPTION_CAP = 8000;
 
@@ -22,14 +23,21 @@ const MAX_TITLE = 160;
  * every other adapter talks to a typed API. They are compiled here rather than
  * in config.mjs so the config loader stays adapter-agnostic: nine more
  * adapters are coming and none of them should teach it new field names.
+ *
+ * The two spellings are compileMatcher's, because the README says they are the
+ * same: `/body/flags` is a real regex, and anything else is a case-insensitive
+ * literal. Compiling a plain string as a pattern instead made
+ * `hrefPattern: "job (UK)"` match the href `/job UK/1` — the parentheses became
+ * a group — which is silently wrong rather than an error, the worst way for a
+ * config field to be misunderstood.
  */
 function compileSiteRegex(spec, field, siteId) {
   const m = String(spec).match(/^\/(.*)\/([gimsuy]*)$/s);
-  const [body, flags] = m ? [m[1], m[2]] : [String(spec), 'i'];
+  if (!m) return new RegExp(escapeLiteral(String(spec)), 'i');
   try {
     // g and y make .test() stateful across calls; the patterns here are reused
     // against every anchor on the page, so they must not carry position.
-    return new RegExp(body, flags.replace(/[gy]/g, ''));
+    return new RegExp(m[1], m[2].replace(/[gy]/g, ''));
   } catch (err) {
     throw new Error(`site '${siteId}' has an invalid ${field}: ${err.message}`);
   }
@@ -118,7 +126,11 @@ function cleanTitle(title, url, site, compiled) {
     out = out.split(site.titleSplit)[0];
   }
   for (const re of compiled.titleStrip) out = out.replace(re, '');
-  return out.replace(/\s{2,}/g, ' ').trim();
+  // \s+ rather than \s{2,}: an anchor wrapping a heading and a location line
+  // produces a title with a single newline in it, and markdown.mjs interpolates
+  // the title straight into a `###` heading — one newline breaks the digest's
+  // structure, not just its looks.
+  return out.replace(/\s+/g, ' ').trim();
 }
 
 /**

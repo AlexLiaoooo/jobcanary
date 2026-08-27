@@ -14,7 +14,14 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const FORMATS = ['markdown', 'json', 'both'];
 const FIELDS = ['title', 'company', 'location', 'description', 'all'];
 
-const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Escape a plain string so it compiles to a regex matching itself.
+ *
+ * Exported for the `static` adapter: it compiles its own site regexes, but the
+ * README promises those fields take the same form as a rule's `match`, and only
+ * one definition of "the same form" can stay true as both move.
+ */
+export const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Compile one match specification into a RegExp.
