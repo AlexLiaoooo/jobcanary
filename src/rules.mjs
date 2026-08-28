@@ -18,18 +18,38 @@ function matches(posting, rule) {
 }
 
 /**
- * Apply exclude and annotate rules to one posting.
+ * Apply include, exclude and annotate rules to one posting, in that order.
  *
- * Exclude rules short-circuit: the first match drops the posting and no
- * annotations are computed. Annotate rules never drop anything — they attach a
- * note so a later scoring stage can judge with full context instead of a
- * keyword guess.
+ * `include` is the gate: when the list is non-empty a posting must match at
+ * least one rule to survive at all. Without it the only postings dropped are
+ * the ones a rule names explicitly, so anything unanticipated gets through — a
+ * roster of 51 employers produced a digest of 546 postings including network
+ * administrators and tooling engineers, because no rule thought to exclude
+ * them. An empty include list keeps the old behaviour, which is why it is the
+ * default: naming what you want is a decision, not a requirement.
+ *
+ * `exclude` still wins over `include`, so a rule that names something
+ * unwanted overrides a broad include that happened to catch it.
+ *
+ * Annotate rules never drop anything — they attach a note so a later scoring
+ * stage can judge with full context instead of a keyword guess.
+ *
+ * A rule matches when ANY of its `match` entries hits. To require two terms at
+ * once — "graduate" and an engineering discipline, say — use one lookahead
+ * regex: `/^(?=.*\bgraduate\b)(?=.*\bengineer\b)/i`.
  *
  * @param {object} posting
- * @param {{exclude: object[], annotate: object[]}} rules
+ * @param {{include?: object[], exclude?: object[], annotate?: object[]}} rules
  * @returns {{keep: boolean, excludedBy: string|null, notes: string[]}}
+ *   `excludedBy` is the id of the exclude rule that dropped it, or the literal
+ *   'not-included' when it matched no include rule.
  */
 export function applyRules(posting, rules) {
+  const include = rules.include ?? [];
+  if (include.length > 0 && !include.some((rule) => matches(posting, rule))) {
+    return { keep: false, excludedBy: 'not-included', notes: [] };
+  }
+
   for (const rule of rules.exclude ?? []) {
     if (matches(posting, rule)) {
       return { keep: false, excludedBy: rule.id, notes: [] };

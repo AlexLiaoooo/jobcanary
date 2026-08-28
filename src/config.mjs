@@ -167,6 +167,11 @@ export function parseConfig(text, baseDir) {
 
   const seenIds = new Set();
 
+  const includeRules = raw.rules?.include ?? [];
+  if (!Array.isArray(includeRules)) {
+    throw new ConfigError('rules.include must be a list');
+  }
+
   const excludeRules = raw.rules?.exclude ?? [];
   if (!Array.isArray(excludeRules)) {
     throw new ConfigError('rules.exclude must be a list');
@@ -194,6 +199,7 @@ export function parseConfig(text, baseDir) {
     output,
     dedupe: { retentionDays },
     rules: {
+      include: includeRules.map((r, i) => compileRule(r, 'include', i)),
       exclude: excludeRules.map((r, i) => compileRule(r, 'exclude', i)),
       annotate: annotateRules.map((r, i) => compileRule(r, 'annotate', i)),
     },

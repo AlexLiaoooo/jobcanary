@@ -22,7 +22,42 @@ scoring:
   keywords: [graduate, junior, trainee, intern, placement, powertrain, aerodynamic, cfd, motorsport, simulation, composites, thermal]
 
 rules:
+  # A posting must match one of these to appear at all. Without the gate, a
+  # 51-employer run produced 546 postings including network administrators and
+  # tooling engineers — nothing had excluded them, because nothing thought to.
+  include:
+    - id: motorsport-role
+      field: title
+      match: ["motorsport", "aerodynamic", "powertrain", "trackside", "race engineer", "cfd", "wind tunnel", "composites", "vehicle dynamics", "simulation", "calibration", "battery", "hybrid"]
+    - id: early-career-engineering
+      # An AND across two word lists, which a match array cannot express — any
+      # one entry matching is enough there. A lookahead regex is the escape
+      # hatch, and it must not depend on word order: "Engineering Graduate" is
+      # as real a title as "Graduate Engineer". The discipline list carries no
+      # trailing \b for the same reason — \bengineer\b cannot match inside
+      # "Engineering".
+      field: title
+      match: ["/^(?=.*\\b(graduate|junior|trainee|intern|placement|apprentice|early career)\\b)(?=.*\\b(engineer|mechanical|aero|design|thermal|structural|systems|manufacturing|electrical|software|data))/i"]
   exclude:
+    # Several employers here are multinationals whose UK careers page lists
+    # every European vacancy. A non-English job title implies the role needs
+    # that language, so it is the cheapest reliable proxy for "not a UK role" —
+    # a live run otherwise filled the digest with Praktikum and Masterarbeit
+    # listings from the German sites.
+    #
+    # Three patterns, because one will not do it: accented letters catch most
+    # of it, whole words catch the unaccented Romance and Romanian titles, and
+    # substrings catch German compounds like "Projektingenieur" that no
+    # word-boundary match can see inside.
+    #
+    # An English title on a German posting — "Design Engineer (m/w/d)" — is
+    # deliberately kept: none of the three patterns match the gender marker.
+    - id: non-english-title
+      field: title
+      match:
+        - "/[äöüßàáâãçèéêëìíîïòóôõùúûñšžčćđ]/i"
+        - "/\\b(ingenieur|ingénieur|ingegnere|ingeniero|inginer|entwickler|entwicklung|mitarbeiter|praktikum|praktikant|werkstudent|ausbildung|auszubildende|fachkraft|leiter|leitung|betrieb|vertrieb|einkauf|konstrukteur|techniker|tecnico|responsabile|responsable|technicien|alternance|stagiaire|stagista|conception|ricerca|sviluppo|progettazione|meccanica|azienda|laurea|tirocinio|apprendista|meister|kaufmann|kauffrau|referent|sachbearbeiter|monteur|schlosser|produktion|fertigung|beschaffung|beca|puesta|marcha|herramienta|montaje|montaj|ensayos?|calidad|desarrollo|practicas|crearea|formare|calibrare|dezvoltare|proiect|del|della|delle|degli|dei|und|por|para|pentru)\\b/i"
+        - "/(entwickl|ingenieur|konstrukt|mitarbeiter|fachkraft|praktik|werkstud|ausbild|auszubild|techniker|prüf|qualitäts|beschaffung|vertrieb|fertigung|instandhalt|schlosser|monteur|meister|sachbearbeit|zerspan|masterand|masterarbeit|bachelorarbeit|diplomarbeit)/i"
     - id: senior
       field: title
       match: ["senior", "principal", "/^lead\\b/i", "head of", "director", "chief", "manager"]

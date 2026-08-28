@@ -133,7 +133,11 @@ scoring:
   rubric: ./rubric.md               # optional; overrides the built-in rubric for either LLM provider (default: built-in)
   batch: false                       # must stay false — the Batch API is not implemented (default: false)
 
-rules:                        # optional; both lists default to empty (no filtering, nothing excluded)
+rules:                        # optional; all three lists default to empty (no filtering at all)
+  include:                     # if non-empty, a posting must match one of these to appear at all
+    - id: motorsport-role       # evaluated before exclude; an exclude rule still overrides a match here
+      field: title
+      match: ["powertrain", "aerodynamic", "cfd"]
   exclude:                     # postings matching any exclude rule are dropped entirely
     - id: senior                # required (any truthy value); identifies the rule in the internal verdict, not surfaced in the digest or logs — not required to be unique
       field: title               # title | company | location | description | all (default: all)
