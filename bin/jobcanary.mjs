@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadConfig, ConfigError } from '../src/config.mjs';
 import { run } from '../src/pipeline.mjs';
 import { renderDigest } from '../src/output/markdown.mjs';
@@ -15,7 +16,7 @@ Usage:
 
 Options:
   -c, --config <path>   Config file (default: ./jobcanary.yaml)
-  -p, --preset <name>   Not available yet — no presets are bundled in this release
+  -p, --preset <name>   Use a bundled preset from presets/ (e.g. uk-motorsport)
       --out <dir>       Override the output directory
       --browser         Include browser-tier sites
       --dry             Fetch and report, but write nothing
@@ -23,6 +24,8 @@ Options:
 
 Exit codes: 0 ok · 1 unexpected · 2 config invalid · 3 all sites failed or no postings · 4 scoring failed
 `.trim();
+
+const PRESET_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'presets');
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -71,17 +74,28 @@ async function main() {
     return 2;
   }
 
-  // The flag is kept so the failure is a sentence rather than a puzzle: with a
-  // presets/ directory that does not exist on this branch, resolving the path
-  // produced a bare "could not read config at .../presets/x.yaml".
-  if (values.preset !== undefined) {
-    throw new ConfigError(
-      `--preset is not available yet: no presets are bundled in this release, so there is no preset '${values.preset}'. ` +
-      'Write a config file and pass it with --config <path> instead.'
-    );
+  if (values.preset !== undefined && values.config !== undefined) {
+    throw new ConfigError('pass either --preset or --config, not both');
   }
 
-  const configPath = resolve(values.config ?? './jobcanary.yaml');
+  // A preset is an ordinary config file that ships with jobcanary. Naming the
+  // available ones on a miss matters more here than for --config: a mistyped
+  // preset would otherwise read as a missing file the user never created.
+  let configPath;
+  if (values.preset !== undefined) {
+    configPath = join(PRESET_DIR, `${values.preset}.yaml`);
+    if (!existsSync(configPath)) {
+      const available = existsSync(PRESET_DIR)
+        ? readdirSync(PRESET_DIR).filter((f) => f.endsWith('.yaml')).map((f) => f.replace(/\.yaml$/, ''))
+        : [];
+      throw new ConfigError(
+        `no preset named '${values.preset}'` +
+          (available.length ? ` — available: ${available.join(', ')}` : ' — none are bundled')
+      );
+    }
+  } else {
+    configPath = resolve(values.config ?? './jobcanary.yaml');
+  }
 
   const config = loadConfig(configPath);
   if (values.out) config.output.dir = resolve(values.out);

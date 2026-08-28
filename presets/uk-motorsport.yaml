@@ -1,0 +1,665 @@
+# uk-motorsport — UK motorsport, automotive and aerospace employers.
+#
+# Every entry is a public careers page. Sites whose adapter jobcanary does
+# not have yet ship with `enabled: false` and a reason, so the gap is
+# visible in the config rather than silently absent.
+#
+# Run it with:  jobcanary run --preset uk-motorsport
+#
+# You will want to replace the `rules` and `scoring` blocks with your own —
+# they are tuned for an early-career engineer looking for design, simulation
+# and powertrain work in the UK.
+
+output:
+  dir: ./digests
+  format: markdown
+
+dedupe:
+  retentionDays: 30
+
+scoring:
+  provider: none
+  keywords: [graduate, junior, trainee, intern, placement, powertrain, aerodynamic, cfd, motorsport, simulation, composites, thermal]
+
+rules:
+  exclude:
+    - id: senior
+      field: title
+      match: ["senior", "principal", "/^lead\\b/i", "head of", "director", "chief", "manager"]
+    - id: non-engineering
+      field: title
+      match: ["sales", "marketing", "human resources", "recruit", "legal", "communications", "finance"]
+    - id: trade-and-shift
+      field: title
+      match: ["technician", "fitter", "welder", "machinist", "operative", "assembler", "cleaner", "driver"]
+    - id: long-experience
+      field: description
+      match: ["/\\b(5|six|seven|eight|nine|ten|10)\\+?\\s*years?\\b/i"]
+    - id: settled-status-required
+      field: all
+      match: ["permanent right to", "permanent residen", "settled status", "indefinite leave", "nationals only", "uk nationals", "british nationals"]
+  annotate:
+    - id: right-to-work
+      field: description
+      match: ["right to work", "no sponsorship", "without sponsorship", "no visa sponsorship", "unable to sponsor", "cannot offer sponsorship", "do not offer sponsorship"]
+      note: "Mentions a UK right-to-work requirement or no visa sponsorship — verify eligibility"
+
+sites:
+  - id: astonmartin-f1
+    company: "Aston Martin F1"
+    type: static
+    enabled: false
+    # no 'pinpoint' adapter yet
+
+  - id: mclaren-racing
+    company: "McLaren Racing"
+    type: static
+    enabled: false
+    # no 'recruitee' adapter yet
+    url: "https://racingcareers.mclaren.com"
+
+  - id: williams
+    company: "Williams Racing"
+    type: static
+    url: "https://careers.williamsf1.com/jobs"
+    hrefPattern: "/\\/job\\/[a-z0-9-]+-jid-\\d+/i"
+    titleFromSlug: true
+    slugStrip: ["/-in-[a-z-]+-jid-\\d+$/i", "/-jid-\\d+$/i"]
+
+  - id: mercedes-hpp
+    company: "Mercedes AMG HPP"
+    type: static
+    url: "https://careersmanager.pageuppeople.com/920/cw/en/listing"
+    hrefPattern: "/\\/job\\/\\d+\\/|\\/en\\/job\\//i"
+    looseHrefPattern: "/\\/job\\//i"
+
+  - id: mercedes-f1
+    company: "Mercedes AMG F1 (Brackley)"
+    type: static
+    url: "https://www.mercedesamgf1.com/careers/vacancies"
+    hrefPattern: "/\\/careers\\/vacancies\\/\\d+|vacanc[a-z]*\\/\\d+/i"
+    looseHrefPattern: "/vacanc/i"
+
+  - id: redbull
+    company: "Red Bull Racing / RBT / Powertrains"
+    type: static
+    enabled: false
+    # no 'oracle' adapter yet
+
+  - id: cadillac-f1
+    company: "Cadillac F1"
+    type: static
+    enabled: false
+    # no 'workable' adapter yet
+
+  - id: cosworth
+    company: "Cosworth"
+    type: static
+    url: "https://currentopportunities.cosworth.com/jobs"
+    hrefPattern: "/\\/jobs\\/\\d+-[a-z0-9-]+/i"
+
+  - id: horse-powertrain
+    company: "HORSE Powertrain (Renault-Geely JV)"
+    type: static
+    url: "https://horse.teamtailor.com/jobs"
+    hrefPattern: "/\\/jobs\\/\\d+-[a-z0-9-]+/i"
+    titleFromSlug: true
+    slugStrip: ["/^\\d+-/"]
+
+  - id: prodrive
+    company: "Prodrive"
+    type: static
+    url: "https://careers.prodrive.com/vacancies"
+    hrefPattern: "/\\/vacancies\\/(?!filter\\/)[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+    slugStrip: ["/-\\d+$/"]
+
+  - id: ilmor
+    company: "Ilmor Engineering"
+    type: static
+    enabled: false
+    # no 'occupop' adapter yet
+    url: "https://www.ilmor.co.uk/careers"
+
+  - id: xtrac
+    company: "Xtrac"
+    type: static
+    url: "https://www.xtrac.com/careers/vacancies/"
+    hrefPattern: "/\\/vacancy\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: msport
+    company: "M-Sport"
+    type: static
+    url: "https://www.m-sport.co.uk/current-vacancies"
+    hrefPattern: "/rele\\d+/i"
+    titleFromSlug: true
+    slugStrip: ["/-?rele\\d+$/i"]
+
+  - id: multimatic
+    company: "Multimatic (MTCE + UK)"
+    type: workday
+    host: "https://multimatic.wd10.myworkdayjobs.com"
+    tenant: "multimatic"
+    board: "MMEC"
+
+  - id: dynisma
+    company: "DYNISMA"
+    type: static
+    url: "https://www.dynisma.com/careers"
+    hrefPattern: "/\\/careers\\/vacancy-[a-z0-9-]+/i"
+    titleFromSlug: true
+    slugStrip: ["/^vacancy-/i"]
+
+  - id: mclaren-auto
+    company: "McLaren Automotive"
+    type: static
+    url: "https://mclarencareers.mclaren.com/careers/SearchJobs"
+    hrefPattern: "/\\/careers\\/JobDetail\\/[^\"']+\\/\\d+/i"
+    pages:
+      - "https://mclarencareers.mclaren.com/careers/SearchJobs/?jobRecordsPerPage=20&jobOffset=20"
+      - "https://mclarencareers.mclaren.com/careers/SearchJobs/?jobRecordsPerPage=20&jobOffset=40"
+      - "https://mclarencareers.mclaren.com/careers/SearchJobs/?jobRecordsPerPage=20&jobOffset=60"
+      - "https://mclarencareers.mclaren.com/careers/SearchJobs/?jobRecordsPerPage=20&jobOffset=80"
+
+  - id: jlr
+    company: "JLR (Gaydon)"
+    type: static
+    url: "https://www.jaguarlandrovercareers.com/search/?q=&locationsearch=Gaydon"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+    pages:
+      - "https://www.jaguarlandrovercareers.com/search/?q=&locationsearch=Gaydon&startrow=25"
+
+  - id: gordon-murray
+    company: "Gordon Murray Group"
+    type: static
+    enabled: false
+    # no 'pinpoint' adapter yet
+
+  - id: mcmurtry
+    company: "McMurtry Automotive"
+    type: static
+    url: "https://www.everarecruitment.com/mcmurtry"
+    hrefPattern: "/\\/jobs?\\/[a-z0-9-]{3,}|\\/vacanc[a-z]*\\/[a-z0-9-]+/i"
+    looseHrefPattern: "/everarecruitment\\.com\\/[a-z0-9-]{6,}/i"
+
+  - id: fortescue-zero
+    company: "Fortescue (incl. Fortescue Zero UK)"
+    type: static
+    url: "https://careers.fortescue.com"
+    hrefPattern: "/\\/job[s]?\\/[a-z0-9-]{3,}/i"
+    looseHrefPattern: "/\\/job/i"
+
+  - id: ricardo
+    company: "Ricardo"
+    type: static
+    url: "https://www.ricardo.com/en/careers/vacancies"
+    hrefPattern: "/\\/careers\\/vacancies\\/\\d{4}-\\d+-[a-z0-9-]+/i"
+    titleFromSlug: true
+    slugStrip: ["/^\\d{4}-\\d+-/"]
+
+  - id: mahle
+    company: "MAHLE Powertrain (Northampton)"
+    type: static
+    url: "https://careers.mahle.com/search/?q=engineer&locationsearch=Northampton"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+    zeroIsOk: true
+
+  - id: horiba-mira
+    company: "HORIBA MIRA"
+    type: static
+    url: "https://careers.horiba-mira.com/join-us/search-our-jobs"
+    hrefPattern: "/WVID=\\w+/i"
+
+  - id: evolito
+    company: "Evolito"
+    type: workday
+    host: "https://evolito.wd3.myworkdayjobs.com"
+    tenant: "evolito"
+    board: "Evolito_Career_Site"
+
+  - id: airbus-uk
+    company: "Airbus (UK)"
+    type: workday
+    host: "https://ag.wd3.myworkdayjobs.com"
+    tenant: "ag"
+    board: "Airbus"
+    searchText: "United Kingdom"
+
+  - id: vertical-aero
+    company: "Vertical Aerospace"
+    type: static
+    enabled: false
+    # no 'ashby' adapter yet
+
+  - id: renishaw
+    company: "Renishaw"
+    type: workday
+    host: "https://renishaw.wd3.myworkdayjobs.com"
+    tenant: "renishaw"
+    board: "Renishaw"
+
+  - id: aeristech
+    company: "Aeristech"
+    type: static
+    enabled: false
+    # no 'workable' adapter yet
+
+  - id: ap-racing
+    company: "AP Racing"
+    type: static
+    url: "https://careers.apracing.com/"
+    hrefPattern: "/\\/vacancies\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: zeroavia
+    company: "ZeroAvia"
+    type: static
+    url: "https://careers.zeroavia.com/search-jobs/"
+    hrefPattern: "/\\/jobs\\/[a-f0-9]{6,}\\/[a-z0-9-]+/i"
+    pages:
+      - "https://careers.zeroavia.com/search-jobs/page/2/"
+    titleFromSlug: true
+
+  - id: totalsim
+    company: "TotalSim (CFD)"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://www.totalsimulation.co.uk/careers/"
+
+  - id: equipmake
+    company: "Equipmake"
+    type: static
+    url: "https://equipmake.com/careers/"
+    hrefPattern: "/\\/(vacancy|vacancies|job|careers?)\\/[a-z0-9-]{4,}/i"
+    zeroIsOk: true
+
+  - id: hewland
+    company: "Hewland Engineering"
+    type: static
+    url: "https://www.hewland.com/careers/"
+    hrefPattern: "/\\/(vacancy|vacancies|job|careers?)\\/[a-z0-9-]{4,}/i"
+    zeroIsOk: true
+
+  - id: fev-uk
+    company: "FEV (group list — UK = Coventry)"
+    type: static
+    url: "https://career.fev.com/en/jobs"
+    hrefPattern: "/\\/en\\/jobs\\/\\d+\\/[a-z0-9-]+/i"
+    titleFromSlug: true
+
+  - id: avl-uk
+    company: "AVL UK"
+    type: static
+    url: "https://jobs.avl.com/search/?q=&locationsearch=United%20Kingdom"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+    zeroIsOk: true
+
+  - id: ab-dynamics
+    company: "AB Dynamics Group (+ Ansible Motion, rFpro)"
+    type: static
+    enabled: false
+    # no 'pinpoint' adapter yet
+
+  - id: contechs
+    company: "Contechs"
+    type: static
+    enabled: false
+    # no 'smartrecruiters' adapter yet
+
+  - id: applus-idiada
+    company: "Applus+ IDIADA"
+    type: static
+    enabled: false
+    # no 'smartrecruiters' adapter yet
+
+  - id: deepdrive
+    company: "DeepDrive"
+    type: static
+    enabled: false
+    # no 'personio' adapter yet
+
+  - id: manthey
+    company: "Manthey Racing"
+    type: static
+    enabled: false
+    # no 'personio' adapter yet
+
+  - id: frazer-nash
+    company: "Frazer-Nash Consultancy"
+    type: workday
+    host: "https://kbr.wd5.myworkdayjobs.com"
+    tenant: "kbr"
+    board: "Frazer_Nash_Careers"
+
+  - id: valeo
+    company: "Valeo"
+    type: workday
+    host: "https://valeo.wd3.myworkdayjobs.com"
+    tenant: "valeo"
+    board: "valeo_jobs"
+    searchText: "powertrain"
+
+  - id: garrett
+    company: "Garrett Motion"
+    type: static
+    enabled: false
+    # no 'oracle' adapter yet
+
+  - id: alcon
+    company: "Alcon Components"
+    type: static
+    url: "https://www.alcon.co.uk/alcon-careers/"
+    hrefPattern: "/alcon\\.co\\.uk\\/careers\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: judd-power
+    company: "Judd Power"
+    type: static
+    url: "https://juddpower.com/vacancies/"
+    hrefPattern: "/juddpower\\.com\\/vacancies\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: van-amersfoort
+    company: "Van Amersfoort Racing"
+    type: static
+    url: "https://www.vanamersfoortracing.nl/careers/"
+    hrefPattern: "/\\/careers\\/[a-z0-9-]{4,}\\/?$/i"
+    titleFromSlug: true
+
+  - id: cambustion
+    company: "Cambustion"
+    type: static
+    url: "https://www.cambustion.com/careers"
+    hrefPattern: "/\\/company\\/careers\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: united-autosports
+    company: "United Autosports"
+    type: static
+    url: "https://www.unitedautosports.com/careers"
+    hrefPattern: "/\\/job-listing\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: ginetta
+    company: "Ginetta Cars"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://www.ginetta.com/careers/"
+
+  - id: roush-uk
+    company: "Roush Technologies (UK)"
+    type: static
+    url: "https://roush.co.uk/jobs.htm"
+    hrefPattern: "/Jobs\\/[A-Za-z0-9_-]+\\.htm/i"
+    titleFromSlug: true
+    slugStrip: ["/\\.htm$/i"]
+
+  - id: ara
+    company: "Aircraft Research Association"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://www.ara.co.uk/careers/"
+
+  - id: domin
+    company: "Domin"
+    type: static
+    url: "https://domin.com/careers/"
+    hrefPattern: "/domin\\.com\\/careers\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: iav
+    company: "IAV"
+    type: static
+    url: "https://www.iav.com/career/joboffers/"
+    hrefPattern: "/\\/career\\/joboffers\\/[a-z0-9-]{4,}/i"
+    titleFromSlug: true
+
+  - id: team-wrt
+    company: "Team WRT"
+    type: static
+    url: "https://www.w-racingteam.com/racing/careers"
+    hrefPattern: "/\\/racing\\/careers\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: podium
+    company: "Podium Advanced Technologies"
+    type: static
+    url: "https://www.podium-tech.com/careers"
+    hrefPattern: "/\\/vacancy\\/[a-z0-9-]{3,}/i"
+    titleFromSlug: true
+
+  - id: hofer
+    company: "hofer powertrain"
+    type: static
+    url: "https://hofer-powertrain.softgarden.io/en/vacancies"
+    hrefPattern: "/\\/job\\/\\d+\\/[^\"'?]{3,}/i"
+    titleFromSlug: true
+
+  - id: hmetc
+    company: "HMETC / Hyundai (Rüsselsheim)"
+    type: static
+    url: "https://hmetc.softgarden.io/"
+    hrefPattern: "/\\/job\\/\\d+\\/[^\"'?]{3,}/i"
+    titleFromSlug: true
+
+  - id: alloyed
+    company: "Alloyed"
+    type: static
+    url: "https://careers.alloyed.com/jobs"
+    hrefPattern: "/careers\\.alloyed\\.com\\/(?:[a-z-]+\\/)?jobs\\/\\d+-[a-z0-9-]+/i"
+    titleFromSlug: true
+    slugStrip: ["/^\\d+-/"]
+
+  - id: aesc
+    company: "AESC UK"
+    type: static
+    url: "https://www.gigajobs.aesc.co.uk/current-vacancies"
+    hrefPattern: "/\\/current-vacancies\\/[a-z0-9-]{4,}/i"
+    titleFromSlug: true
+
+  - id: racelogic
+    company: "Racelogic / VBOX"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://www.racelogic.co.uk/index.php/en/career-opportunities"
+
+  - id: utac
+    company: "UTAC (Millbrook)"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://www.utac.com/career/vacancies"
+
+  - id: mtc
+    company: "Manufacturing Technology Centre"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://www.the-mtc.org/careers/vacancies/"
+
+  - id: crosby
+    company: "Crosby Composites"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://crosby.livevacancies.co.uk/"
+
+  - id: volvo-cars
+    company: "Volvo Cars"
+    type: static
+    url: "https://jobs.volvocars.com/search/?q=engineer&locationsearch=Sweden"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+    pages:
+      - "https://jobs.volvocars.com/search/?q=engineer&locationsearch=Sweden&startrow=10"
+      - "https://jobs.volvocars.com/search/?q=engineer&locationsearch=Sweden&startrow=20"
+
+  - id: schaeffler
+    company: "Schaeffler"
+    type: static
+    url: "https://jobs.schaeffler.com/search/?q=engineer&locationsearch=Germany"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+    pages:
+      - "https://jobs.schaeffler.com/search/?q=engineer&locationsearch=Germany&startrow=25"
+
+  - id: scania
+    company: "Scania"
+    type: static
+    url: "https://jobs.scania.com/search/?q=engineer&locationsearch=S%C3%B6dert%C3%A4lje"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+    pages:
+      - "https://jobs.scania.com/search/?q=engineer&locationsearch=S%C3%B6dert%C3%A4lje&startrow=25"
+
+  - id: agratas
+    company: "Agratas (Tata)"
+    type: static
+    url: "https://careers.agratas.com/search/?q=Bridgwater"
+    hrefPattern: "/\\/job\\/[^\"']+\\/\\d+\\/?/i"
+
+  - id: abt
+    company: "ABT Sportsline"
+    type: static
+    enabled: false
+    # no 'personio' adapter yet
+
+  - id: traxial
+    company: "Traxial"
+    type: static
+    url: "https://jobs.traxial.com/en"
+    hrefPattern: "/jobs\\.traxial\\.com\\/en\\/(?!apply-spontaneous)[a-z0-9-]{4,}/i"
+    titleFromSlug: true
+    zeroIsOk: true
+
+  - id: skoda
+    company: "Škoda (career portal)"
+    type: static
+    url: "https://www.skoda-career.com/"
+    hrefPattern: "/\\/work-at-skoda\\/job-detail\\/\\d+/i"
+    titleStrip: ["/^(White|Blue) collars\\s+/i", "/\\s+View$/i"]
+
+  - id: ohlins
+    company: "Öhlins (Tenneco)"
+    type: static
+    enabled: false
+    # no 'sfrss' adapter yet
+    zeroIsOk: true
+
+  - id: danfoss-editron
+    company: "Danfoss Editron"
+    type: static
+    enabled: false
+    # no 'sfrss' adapter yet
+
+  - id: lotus
+    company: "Lotus Cars (Geely)"
+    type: static
+    url: "https://careers.lotuscars.com/"
+    hrefPattern: "/lotuscars\\.com\\/jobs\\/\\d+-[a-z0-9-]+/i"
+    zeroIsOk: true
+
+  - id: byd-europe
+    company: "BYD Europe"
+    type: static
+    url: "https://careers.bydeurope.com/"
+    hrefPattern: "/bydeurope\\.com\\/jobs\\/\\d+-[a-z0-9-]+/i"
+
+  - id: levc
+    company: "LEVC (Geely)"
+    type: static
+    url: "https://joinus.levccareers.com/jobs"
+    hrefPattern: "/levccareers\\.com\\/jobs\\/\\d+-[a-z0-9-]+/i"
+    zeroIsOk: true
+
+  - id: yasa
+    company: "YASA (Mercedes-Benz)"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://yasa.bamboohr.com/careers"
+    hrefPattern: "/\\/careers\\/\\d+/i"
+
+  - id: rolls-royce
+    company: "Rolls-Royce plc"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://careers.rolls-royce.com/en/jobs?country=United%20Kingdom"
+    hrefPattern: "/\\/en\\/jobs\\/[a-z0-9-]+\\/JR\\d+/i"
+    titleSplit: "|"
+    titleStrip: ["/\\s*Professionals\\s*$/i", "/\\s*Posted .*$/i"]
+
+  - id: mercedes-f1-full
+    company: "Mercedes AMG F1 (Brackley)"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://www.mercedesamgf1.com/careers/vacancies"
+    hrefPattern: "/\\/careers\\/vacancies\\/\\d+/i"
+    titleFromSlug: true
+
+  - id: advanced-electric-machines
+    company: "Advanced Electric Machines"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://advancedelectricmachines.bamboohr.com/careers"
+    hrefPattern: "/\\/careers\\/\\d+/i"
+
+  - id: safran-pitstone
+    company: "Safran Electrical & Power (Pitstone)"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://www.safran-group.com/jobs?search=pitstone"
+    hrefPattern: "/\\/jobs\\/united-kingdom\\/pitstone-buckinghamshire\\/[a-z0-9-]+-\\d+/i"
+    titleFromSlug: true
+    slugStrip: ["/-\\d+$/"]
+
+  - id: grainger-worrall
+    company: "Grainger & Worrall"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://workmyway.avature.net/en_GB/careerspage?jobid=16512"
+
+  - id: rimac-tech
+    company: "Rimac Technology"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://careers.rimac-group.com/rimac-technology/"
+    hrefPattern: "/\\/position\\/[a-z0-9-]{3,}\\/?/i"
+    titleFromSlug: true
+
+  - id: bugatti-rimac
+    company: "Bugatti Rimac"
+    type: static
+    enabled: false
+    # no 'browser' adapter yet
+    url: "https://careers.rimac-group.com/bugatti-rimac/"
+    hrefPattern: "/\\/position\\/[a-z0-9-]{3,}\\/?/i"
+    titleFromSlug: true
+
+  - id: drive-system-design
+    company: "Drive System Design"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://drivesystemdesign.com/careers/"
+
+  - id: rml-group
+    company: "RML Group"
+    type: static
+    enabled: false
+    # disabled upstream
+    url: "https://careers.rmlgroup.com/"
+
+  - id: helix
+    company: "Helix / Integral Powertrain"
+    type: static
+    enabled: false
+    # no 'smartrecruiters' adapter yet
