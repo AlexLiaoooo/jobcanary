@@ -166,16 +166,29 @@ test('an unknown adapter type exits 2', async () => {
   assert.match(r.stderr, /unknown adapter type/);
 });
 
-test('--preset says presets are not bundled yet rather than a missing-file error', async () => {
-  const r = await runCli(['run', '--preset', 'uk-motorsport']);
+// No test may invoke a real preset. A bundled preset names live career sites,
+// so `--preset uk-motorsport` crawls the internet — the version of this test
+// that did took 83 seconds. Every case below fails before any site is fetched,
+// and the preset's contents are checked by loading the file rather than running
+// it (see test/presets.test.mjs).
+test('an unknown preset exits 2 and names the ones that exist', async () => {
+  const r = await runCli(['run', '--preset', 'nonesuch']);
   assert.equal(r.code, 2);
-  assert.match(r.stderr, /--preset is not available yet: no presets are bundled/);
+  assert.match(r.stderr, /no preset named 'nonesuch'/);
+  assert.match(r.stderr, /available: .*uk-motorsport/);
   assert.doesNotMatch(r.stderr, /could not read config/);
 });
 
-test('--help says the preset flag is not available yet', async () => {
+test('--preset and --config together exit 2', async () => {
+  const { cfg } = workspace();
+  const r = await runCli(['run', '--preset', 'nonesuch', '--config', cfg]);
+  assert.equal(r.code, 2);
+  assert.match(r.stderr, /either --preset or --config, not both/);
+});
+
+test('--help describes the preset flag as usable', async () => {
   const r = await runCli(['--help']);
-  assert.match(r.stdout, /--preset <name>\s+Not available yet/);
+  assert.match(r.stdout, /--preset <name>\s+Use a bundled preset/);
 });
 
 test('--dry reports the counts and writes nothing at all', async () => {

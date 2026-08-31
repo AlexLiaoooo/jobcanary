@@ -14,7 +14,14 @@ const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
 const FORMATS = ['markdown', 'json', 'both'];
 const FIELDS = ['title', 'company', 'location', 'description', 'all'];
 
-const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Escape a plain string so it compiles to a regex matching itself.
+ *
+ * Exported for the `static` adapter: it compiles its own site regexes, but the
+ * README promises those fields take the same form as a rule's `match`, and only
+ * one definition of "the same form" can stay true as both move.
+ */
+export const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
  * Compile one match specification into a RegExp.
@@ -160,6 +167,11 @@ export function parseConfig(text, baseDir) {
 
   const seenIds = new Set();
 
+  const includeRules = raw.rules?.include ?? [];
+  if (!Array.isArray(includeRules)) {
+    throw new ConfigError('rules.include must be a list');
+  }
+
   const excludeRules = raw.rules?.exclude ?? [];
   if (!Array.isArray(excludeRules)) {
     throw new ConfigError('rules.exclude must be a list');
@@ -187,6 +199,7 @@ export function parseConfig(text, baseDir) {
     output,
     dedupe: { retentionDays },
     rules: {
+      include: includeRules.map((r, i) => compileRule(r, 'include', i)),
       exclude: excludeRules.map((r, i) => compileRule(r, 'exclude', i)),
       annotate: annotateRules.map((r, i) => compileRule(r, 'annotate', i)),
     },

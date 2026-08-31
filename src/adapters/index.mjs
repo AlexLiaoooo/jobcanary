@@ -1,10 +1,12 @@
 import greenhouse from './greenhouse.mjs';
 import lever from './lever.mjs';
+import staticSite from './static.mjs';
 import workday from './workday.mjs';
 
 const ADAPTERS = new Map([
   [greenhouse.id, greenhouse],
   [lever.id, lever],
+  [staticSite.id, staticSite],
   [workday.id, workday],
 ]);
 

@@ -100,3 +100,79 @@ test('an annotate rule compiled with a /g/ flag fires on three consecutive ident
   const notes = [1, 2, 3].map(() => applyRules(p(), rules).notes);
   assert.deepEqual(notes, [['Check eligibility'], ['Check eligibility'], ['Check eligibility']]);
 });
+
+test('with no include rules every posting survives', () => {
+  const r = applyRules(posting(), { include: [], exclude: [], annotate: [] });
+  assert.equal(r.keep, true);
+  assert.equal(r.excludedBy, null);
+});
+
+test('a posting matching no include rule is dropped', () => {
+  const r = applyRules(posting({ title: 'Network Administrator' }), {
+    include: [rule('motorsport', 'title', 'aerodynamic', 'powertrain')],
+    exclude: [],
+    annotate: [],
+  });
+  assert.equal(r.keep, false);
+  assert.equal(r.excludedBy, 'not-included');
+});
+
+test('matching any one include rule is enough', () => {
+  const rules = {
+    include: [rule('motorsport', 'title', 'powertrain'), rule('target', 'company', 'Acme')],
+    exclude: [],
+    annotate: [],
+  };
+  // Matches on company only.
+  assert.equal(applyRules(posting({ title: 'Network Administrator' }), rules).keep, true);
+  // Matches on title only.
+  assert.equal(applyRules(posting({ title: 'Powertrain Engineer', company: 'Other Ltd' }), rules).keep, true);
+});
+
+test('exclude still wins over include', () => {
+  const r = applyRules(posting({ title: 'Head of Powertrain' }), {
+    include: [rule('motorsport', 'title', 'powertrain')],
+    exclude: [rule('senior', 'title', 'head of')],
+    annotate: [],
+  });
+  assert.equal(r.keep, false);
+  assert.equal(r.excludedBy, 'senior');
+});
+
+test('a posting dropped for not being included is not annotated', () => {
+  const r = applyRules(posting({ title: 'Network Administrator', description: 'no sponsorship' }), {
+    include: [rule('motorsport', 'title', 'powertrain')],
+    exclude: [],
+    annotate: [note('rtw', 'description', 'Check eligibility', 'no sponsorship')],
+  });
+  assert.equal(r.keep, false);
+  assert.deepEqual(r.notes, []);
+});
+
+test('an included posting is still annotated', () => {
+  const r = applyRules(posting({ title: 'Powertrain Engineer', description: 'no sponsorship' }), {
+    include: [rule('motorsport', 'title', 'powertrain')],
+    exclude: [],
+    annotate: [note('rtw', 'description', 'Check eligibility', 'no sponsorship')],
+  });
+  assert.equal(r.keep, true);
+  assert.deepEqual(r.notes, ['Check eligibility']);
+});
+
+test('a lookahead regex expresses an include rule needing two terms at once', () => {
+  // The graduate-plus-discipline filter is an AND across two word lists, which
+  // a match array cannot express — any entry matching is enough. A lookahead
+  // regex is the documented escape hatch, and it must not depend on word order.
+  const twoTerms = rule(
+    'early-career',
+    'title',
+    // No trailing \b on the discipline list: "Engineering Graduate" is a real
+    // title and \bengineer\b cannot match inside "Engineering".
+    '/^(?=.*\\b(graduate|junior|intern)\\b)(?=.*\\b(engineer|design))/i',
+  );
+  const rules = { include: [twoTerms], exclude: [], annotate: [] };
+  assert.equal(applyRules(posting({ title: 'Graduate Design Engineer' }), rules).keep, true);
+  assert.equal(applyRules(posting({ title: 'Engineering Graduate' }), rules).keep, true, 'order must not matter');
+  assert.equal(applyRules(posting({ title: 'Graduate Accountant' }), rules).keep, false);
+  assert.equal(applyRules(posting({ title: 'Senior Design Engineer' }), rules).keep, false);
+});

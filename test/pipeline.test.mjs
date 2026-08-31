@@ -503,3 +503,80 @@ test('the precondition sees the same options score() does, profile included', as
   assert.equal(seenByPrecondition.profile, '/somewhere/profile.md');
   assert.deepEqual(seenByPrecondition, seenByScore);
 });
+
+// --- the static adapter, end to end ---
+//
+// `static` appeared in no test outside its own file. Two of its behaviours are
+// only observable from here: the within-run map is keyed by posting.id, so an
+// id collision is invisible to an adapter-level test, and the
+// yieldsDescription: false -> fetchDescription -> rules-reapplication sequence
+// lives entirely in this file.
+
+const staticSite = (over = {}) => ({
+  id: 'acme',
+  company: 'Acme Dynamics',
+  type: 'static',
+  enabled: true,
+  url: 'https://careers.acme.test/jobs',
+  hrefPattern: '/\\/job\\.php/i',
+  ...over,
+});
+
+const staticListing = `
+  <a href="/job.php?id=101">Aerodynamicist</a>
+  <a href="/job.php?id=102">Composites Engineer</a>
+  <a href="/job.php?id=103">Thermal Systems Engineer</a>`;
+
+// Only 103 rules itself out, and only on text that does not exist until its
+// description has been fetched.
+const staticHttp = async (url) => {
+  if (url.endsWith('/jobs')) return { ok: true, status: 200, text: staticListing };
+  const id = new URL(url).searchParams.get('id');
+  const sponsorship = id === '103' ? 'We cannot offer visa sponsorship.' : 'Sponsorship is available.';
+  return { ok: true, status: 200, text: `<main><p>Job ${id} in Bicester. ${sponsorship}</p></main>` };
+};
+
+test('a static site survives a whole run with its postings still distinct', async () => {
+  const { postings, stats } = await run(baseConfig({ sites: [staticSite()] }), {
+    seen: {}, http: staticHttp, logger: quietLogger,
+  });
+  // Three query-string jobs on one path. With the path alone as the native id
+  // they collapsed to a single entry in the within-run map, and the other two
+  // were dropped here without a word.
+  assert.equal(stats.scanned, 3);
+  assert.deepEqual(
+    postings.map((p) => p.id).sort(),
+    ['acme:/job.php?id=101', 'acme:/job.php?id=102', 'acme:/job.php?id=103'],
+  );
+});
+
+test('a static posting is enriched from its own page and re-judged on it', async () => {
+  const cfg = baseConfig({
+    sites: [staticSite()],
+    rules: {
+      exclude: [{ id: 'no-sponsorship', field: 'description', match: [compileMatcher('cannot offer visa sponsorship')] }],
+      annotate: [],
+    },
+  });
+  const { postings, stats } = await run(cfg, { seen: {}, http: staticHttp, logger: quietLogger });
+
+  // static declares yieldsDescription: false, so every survivor costs a second
+  // request and the rules run again on what comes back.
+  assert.equal(stats.enrichmentFetches, 3);
+  assert.equal(stats.excluded, 1);
+  assert.deepEqual(stats.excludedIds, ['acme:/job.php?id=103']);
+  assert.equal(postings.length, 2);
+  assert.match(postings.find((p) => p.id.endsWith('101')).description, /Job 101 in Bicester/);
+});
+
+test('a static site that matches nothing is a site error, not an empty digest', async () => {
+  fakeAdapter('fake-ok', [{ n: 1, title: 'Graduate Engineer' }]);
+  const cfg = baseConfig({
+    sites: [staticSite(), { id: 's1', company: 'Acme Dynamics', type: 'fake-ok', enabled: true }],
+  });
+  const empty = async () => ({ ok: true, status: 200, text: '<p>no jobs here</p>' });
+  const { stats } = await run(cfg, { seen: {}, http: empty, logger: quietLogger });
+  assert.equal(stats.siteErrors.length, 1);
+  assert.equal(stats.siteErrors[0].site, 'acme');
+  assert.match(stats.siteErrors[0].error, /found no job links/);
+});
